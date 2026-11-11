@@ -164,6 +164,7 @@ export function Preview() {
   const projectRef = useRef(project);
   const playingRef = useRef(playing);
   const timeRef = useRef(currentTime);
+  const lastSlowSeekWarningRef = useRef(0);
 
   const duration = project ? projectDuration(project.tracks, 0) : 0;
   const fps = project?.fps ?? 30;
@@ -833,9 +834,18 @@ export function Preview() {
   useEffect(() => {
     timeRef.current = currentTime;
     if (!playingRef.current) {
+      const seekStarted = performance.now();
       syncElements(currentTime, false);
       applyGains(currentTime);
       scheduleDraw();
+      const elapsedMs = performance.now() - seekStarted;
+      if (elapsedMs > 24 && performance.now() - lastSlowSeekWarningRef.current > 5000 && import.meta.env.DEV) {
+        lastSlowSeekWarningRef.current = performance.now();
+        console.warn("LibreCut slow preview seek", {
+          elapsedMs: Math.round(elapsedMs),
+          clips: projectRef.current?.tracks.reduce((count, track) => count + track.clips.length, 0) ?? 0,
+        });
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTime]);

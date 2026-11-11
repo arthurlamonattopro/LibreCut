@@ -79,6 +79,10 @@ export async function createProxy(path: string, height = 720): Promise<Registere
   return invoke<RegisteredMedia>("create_proxy", { path, height });
 }
 
+export async function removeProxyCache(proxyId: string): Promise<void> {
+  return invoke("remove_proxy_cache", { proxyId });
+}
+
 export async function exportProject(request: ExportRequest): Promise<ExportResult> {
   return invoke<ExportResult>("export_project", { request });
 }

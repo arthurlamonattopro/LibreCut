@@ -86,11 +86,13 @@ function writeIndex(summaries: ProjectSummary[]) {
 }
 
 export function persistProject(project: Project): ProjectSummary {
+  const saveStarted = performance.now();
   const summary = summarize(project);
   const key = PROJECT_KEY(project.id);
 
   try {
-    localStorage.setItem(key, JSON.stringify(project));
+    const serialized = JSON.stringify(project);
+    localStorage.setItem(key, serialized);
   } catch {
     // Thumbnails and waveforms are regenerable caches. Drop them rather than
     // failing the autosave when the WebView storage quota is tight.
@@ -107,6 +109,14 @@ export function persistProject(project: Project): ProjectSummary {
 
   const others = listProjects().filter((item) => item.id !== project.id);
   writeIndex([summary, ...others]);
+  const elapsedMs = performance.now() - saveStarted;
+  if (elapsedMs > 100 && import.meta.env.DEV) {
+    console.warn("LibreCut slow project save", {
+      elapsedMs: Math.round(elapsedMs),
+      assets: project.assets.length,
+      clips: project.tracks.reduce((count, track) => count + track.clips.length, 0),
+    });
+  }
   return summary;
 }
 

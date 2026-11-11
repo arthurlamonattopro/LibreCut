@@ -91,6 +91,7 @@ export function useMediaImport() {
       await Promise.all(Array.from({ length: Math.min(3, usable.length) }, async () => {
         while (nextPath < usable.length) {
           const path = usable[nextPath++];
+          const importStarted = performance.now();
         try {
           const registered = await registerMedia(path);
           const info = registered.info;
@@ -117,6 +118,10 @@ export function useMediaImport() {
           if (needsProxy(info)) {
             replaceAsset(asset.id, { proxyStatus: "generating" });
             retryProxy(asset);
+          }
+          const elapsedMs = performance.now() - importStarted;
+          if (elapsedMs > 250 && import.meta.env.DEV) {
+            console.warn("LibreCut slow media import", { elapsedMs: Math.round(elapsedMs), width: info.width, height: info.height, hasAudio: info.hasAudio });
           }
         } catch (error) {
           const details = error instanceof Error ? error.message : String(error);

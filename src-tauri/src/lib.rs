@@ -23,6 +23,7 @@ pub fn run() {
             media::generate_thumbnails,
             media::generate_waveform,
             media::create_proxy,
+            media::remove_proxy_cache,
             media::read_media_for_ai,
             media::save_ai_audio,
             media::save_ai_image,

@@ -18,7 +18,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useEditor } from "../../stores/editor";
-import { mediaUrl } from "../../lib/media";
+import { mediaUrl, removeProxyCache } from "../../lib/media";
 import { formatDuration } from "../../lib/time";
 import { EFFECT_PLUGIN_TEMPLATE, loadEffectPacks, parseEffectPack, saveEffectPacks, type EffectPackCategory, type InstalledEffectPack, type PluginEffectValues, type PluginTextValues } from "../../lib/plugins";
 import { Waveform } from "../../components/Waveform";
@@ -209,7 +209,11 @@ export function MediaPanel({ width = 256 }: { width?: number }) {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {filtered.map((asset) => (
-                    <AssetCard key={asset.id} asset={asset} onAdd={() => addClip(asset.id)} onDragPreview={setDragPreview} onRetryProxy={() => retryProxy(asset)} onUseOriginal={() => useEditor.getState().replaceAsset(asset.id, { previewMediaId: asset.mediaId })} />
+                    <AssetCard key={asset.id} asset={asset} onAdd={() => addClip(asset.id)} onDragPreview={setDragPreview} onRetryProxy={() => retryProxy(asset)} onUseOriginal={() => useEditor.getState().replaceAsset(asset.id, { previewMediaId: asset.mediaId })} onCleanupProxy={async () => {
+                      if (!asset.proxyId) return;
+                      try { await removeProxyCache(asset.proxyId); useEditor.getState().replaceAsset(asset.id, { proxyId: undefined, previewMediaId: asset.mediaId, proxyStatus: "none" }); toast("Cached proxy removed. The original is used for preview.", "success"); }
+                      catch (error) { toast(error instanceof Error ? error.message : "Could not remove the cached proxy.", "error"); }
+                    }} />
                   ))}
                 </div>
                 <button
@@ -419,7 +423,7 @@ function TabButton({
   );
 }
 
-function AssetCard({ asset, onAdd, onDragPreview, onRetryProxy, onUseOriginal }: { asset: Asset; onAdd: () => void; onDragPreview: (preview: DragPreview) => void; onRetryProxy: () => void; onUseOriginal: () => void }) {
+function AssetCard({ asset, onAdd, onDragPreview, onRetryProxy, onUseOriginal, onCleanupProxy }: { asset: Asset; onAdd: () => void; onDragPreview: (preview: DragPreview) => void; onRetryProxy: () => void; onUseOriginal: () => void; onCleanupProxy: () => Promise<void> }) {
   const isAudio = !asset.info.hasVideo && asset.info.hasAudio;
   const thumbnail = asset.thumbnails[0];
 
@@ -532,6 +536,7 @@ function AssetCard({ asset, onAdd, onDragPreview, onRetryProxy, onUseOriginal }:
         {asset.info.isVfr ? <div className="mt-1 text-[9px] text-amber" title="Variable frame rate may affect seeking or audio sync">Possible variable frame rate · export normalizes</div> : null}
         {asset.proxyStatus === "failed" ? <button className="mt-1 text-[9px] text-amber hover:text-ink" onClick={(event) => { event.stopPropagation(); onRetryProxy(); }}>Proxy failed · Retry</button> : null}
         {asset.proxyStatus === "ready" && asset.previewMediaId === asset.proxyId ? <button className="mt-1 text-[9px] text-dim hover:text-ink" onClick={(event) => { event.stopPropagation(); onUseOriginal(); }}>Preview original</button> : null}
+        {asset.proxyStatus === "ready" ? <button className="mt-1 block text-[9px] text-dim hover:text-error" onClick={(event) => { event.stopPropagation(); void onCleanupProxy(); }}>Remove cached proxy</button> : null}
       </div>
     </div>
   );

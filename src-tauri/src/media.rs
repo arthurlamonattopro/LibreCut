@@ -147,6 +147,12 @@ impl MediaRegistry {
     pub fn get(&self, id: &str) -> Option<PathBuf> {
         self.entries.read().ok()?.get(id).cloned()
     }
+
+    pub fn remove(&self, id: &str) {
+        if let Ok(mut entries) = self.entries.write() {
+            entries.remove(id);
+        }
+    }
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -528,6 +534,35 @@ pub async fn create_proxy(
         path: target.to_string_lossy().to_string(),
         info,
     })
+}
+
+#[tauri::command]
+pub fn remove_proxy_cache(
+    app: AppHandle,
+    registry: State<'_, MediaRegistry>,
+    proxy_id: String,
+) -> Result<(), String> {
+    let target = registry.get(&proxy_id).ok_or_else(|| {
+        "This proxy is no longer registered. Reopen the project and retry.".to_string()
+    })?;
+    let cache = app
+        .path()
+        .app_cache_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("librecut"));
+    let proxy_dir = cache.join("proxies");
+    let canonical_dir = proxy_dir
+        .canonicalize()
+        .map_err(|error| format!("Could not access the proxy cache: {error}"))?;
+    let canonical_target = target
+        .canonicalize()
+        .map_err(|error| format!("Could not access the cached proxy: {error}"))?;
+    if !canonical_target.starts_with(&canonical_dir) {
+        return Err("Refusing to remove a file outside the proxy cache.".to_string());
+    }
+    fs::remove_file(&canonical_target)
+        .map_err(|error| format!("Could not remove the cached proxy: {error}"))?;
+    registry.remove(&proxy_id);
+    Ok(())
 }
 
 fn mime_for(path: &Path) -> &'static str {
