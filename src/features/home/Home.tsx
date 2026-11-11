@@ -82,7 +82,7 @@ export function Home({ onOpenProject }: HomeProps) {
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [checkingRuntime, setCheckingRuntime] = useState(false);
   const [autoUpdate, setAutoUpdate] = useState(readAutoUpdatePreference);
-  const [appVersion, setAppVersion] = useState("0.1.0");
+  const [appVersion, setAppVersion] = useState("0.3.0");
   const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [installingUpdate, setInstallingUpdate] = useState(false);
