@@ -482,14 +482,29 @@ fn font_file(weight: Option<&str>, family: Option<&str>, italic: bool) -> String
     let bold = weight == Some("bold");
     let family = family.unwrap_or("Segoe UI").to_ascii_lowercase();
     let faces = match family.as_str() {
-        "georgia" => ("georgia.ttf", "georgiab.ttf", "georgiai.ttf", "georgiaz.ttf"),
+        "georgia" => (
+            "georgia.ttf",
+            "georgiab.ttf",
+            "georgiai.ttf",
+            "georgiaz.ttf",
+        ),
         "times new roman" => ("times.ttf", "timesbd.ttf", "timesi.ttf", "timesbi.ttf"),
         "courier new" => ("cour.ttf", "courbd.ttf", "couri.ttf", "courbi.ttf"),
         "impact" => ("impact.ttf", "impact.ttf", "impact.ttf", "impact.ttf"),
         "trebuchet ms" => ("trebuc.ttf", "trebucbd.ttf", "trebucit.ttf", "trebucbi.ttf"),
-        "verdana" => ("verdana.ttf", "verdanab.ttf", "verdanai.ttf", "verdanaz.ttf"),
+        "verdana" => (
+            "verdana.ttf",
+            "verdanab.ttf",
+            "verdanai.ttf",
+            "verdanaz.ttf",
+        ),
         "arial" => ("arial.ttf", "arialbd.ttf", "ariali.ttf", "arialbi.ttf"),
-        _ => ("segoeui.ttf", "segoeuib.ttf", "segoeuii.ttf", "segoeuiz.ttf"),
+        _ => (
+            "segoeui.ttf",
+            "segoeuib.ttf",
+            "segoeuii.ttf",
+            "segoeuiz.ttf",
+        ),
     };
     let file = match (bold, italic) {
         (true, true) => faces.3,
@@ -543,10 +558,7 @@ fn keyframe_expr(keyframes: &[ExportKeyframe], property: &str, base: f64, local:
 fn pan_gains(pan: f64) -> (f64, f64) {
     let value = pan.clamp(-1.0, 1.0);
     if value < 0.0 {
-        (
-            (value * std::f64::consts::PI / 2.0).cos(),
-            1.0 + value,
-        )
+        ((value * std::f64::consts::PI / 2.0).cos(), 1.0 + value)
     } else if value > 0.0 {
         (1.0 - value, (value * std::f64::consts::PI / 2.0).sin())
     } else {
@@ -814,11 +826,23 @@ pub fn build_graph(request: &ExportRequest) -> String {
         };
         let alpha = format!("{:.3}*{fade_in}*{fade_out}", effect.opacity.clamp(0.0, 1.0));
         lines.push(format!("[{base}]split[{original}][{from}]"));
-        let lut_filter = effect.lut.as_ref().and_then(|lut| lut.lut_path.as_deref()).map(|path| {
-            let path = path.replace('\\', "/").replace(':', "\\:").replace('\'', "\\'");
-            format!(",lut3d=file='{path}':interp=tetrahedral")
-        }).unwrap_or_default();
-        let effect_strength = effect.lut.as_ref().map(|lut| lut.strength.clamp(0.0, 1.0)).unwrap_or(1.0);
+        let lut_filter = effect
+            .lut
+            .as_ref()
+            .and_then(|lut| lut.lut_path.as_deref())
+            .map(|path| {
+                let path = path
+                    .replace('\\', "/")
+                    .replace(':', "\\:")
+                    .replace('\'', "\\'");
+                format!(",lut3d=file='{path}':interp=tetrahedral")
+            })
+            .unwrap_or_default();
+        let effect_strength = effect
+            .lut
+            .as_ref()
+            .map(|lut| lut.strength.clamp(0.0, 1.0))
+            .unwrap_or(1.0);
         let combined_alpha = format!("({alpha})*{effect_strength:.3}");
         lines.push(format!("[{from}]eq=brightness={:.4}:contrast={:.4}:saturation={:.4},hue=h={:.3},colorchannelmixer=rr={rr:.4}:rg={rg:.4}:rb={rb:.4}:gr={gr:.4}:gg={gg:.4}:gb={gb:.4}:br={br:.4}:bg={bg:.4}:bb={bb:.4}{blur}{vignette}{motion_blur}{lut_filter},format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({combined_alpha})'{mask}[{filtered}]",
             effect.brightness.clamp(-1.0, 1.0), effect.contrast.clamp(0.0, 2.0), effect.saturation.clamp(0.0, 2.0), effect.hue.clamp(-180.0, 180.0)));
@@ -887,10 +911,8 @@ pub fn build_graph(request: &ExportRequest) -> String {
         let common = format!("fontfile='{}':fontcolor={}:fontsize={}:borderw={:.2}:bordercolor={}:shadowcolor={}@{shadow:.3}:shadowx={:.2}:shadowy={:.2}:line_spacing={line_spacing:.2}:alpha='({opacity_expr})*({text_fade_in})*({text_fade_out})'",
             font, color, size, text.outline_width.max(0.0), drawtext_color(outline, 1.0), drawtext_color(shadow_color, 1.0), shadow * 3.0, shadow * 3.0);
         if text.background_opacity > 0.001 {
-            let background = drawtext_color(
-                text.background_color.as_deref().unwrap_or("#000000"),
-                1.0,
-            );
+            let background =
+                drawtext_color(text.background_color.as_deref().unwrap_or("#000000"), 1.0);
             let box_x = match align {
                 "left" => format!("w*({x_expr})-{box_padding:.2}"),
                 "right" => format!("w*({x_expr})-{box_width:.2}-{box_padding:.2}"),
@@ -972,14 +994,16 @@ pub fn build_graph(request: &ExportRequest) -> String {
         if text.underline {
             for (line_index, line_text) in text_lines.iter().enumerate() {
                 let count = line_text.chars().count() as f64;
-                let underline_width = (count * size * 0.6 + text.character_spacing * count).max(1.0);
+                let underline_width =
+                    (count * size * 0.6 + text.character_spacing * count).max(1.0);
                 let anchor_x = format!("w*({x_expr})");
                 let underline_x = match align {
                     "left" => format!("{anchor_x}"),
                     "right" => format!("{anchor_x}-{underline_width:.2}"),
                     _ => format!("{anchor_x}-{:.2}", underline_width / 2.0),
                 };
-                let line_offset = (line_index as f64 - (line_count - 1.0) / 2.0) * size * line_height;
+                let line_offset =
+                    (line_index as f64 - (line_count - 1.0) / 2.0) * size * line_height;
                 let label = format!("txt{index}_underline{line_index}");
                 lines.push(format!("[{base}]drawbox=x={underline_x}:y=h*({y_expr})+{:.2}:w={underline_width:.2}:h={:.2}:color={}@{:.3}:t=fill:enable='between(t,{start:.3},{end:.3})'[{label}]",
                     line_offset + size * 0.55, (size * 0.045).max(1.0), color, text.opacity.clamp(0.0, 1.0)));
@@ -1013,8 +1037,9 @@ pub fn build_graph(request: &ExportRequest) -> String {
             let (audio_input, trim_part, tempo_part) = if ramp_active {
                 let segments = speed_segments(&clip.speed_ramp, clip_duration);
                 let count = segments.len();
-                let split_labels: Vec<String> =
-                    (0..count).map(|segment| format!("sp{index}_{segment}")).collect();
+                let split_labels: Vec<String> = (0..count)
+                    .map(|segment| format!("sp{index}_{segment}"))
+                    .collect();
                 let split_outputs: Vec<String> = (0..count)
                     .map(|segment| format!("sp{index}_{segment}o"))
                     .collect();
@@ -1244,20 +1269,27 @@ pub async fn render_with_progress(
     let mut export_request = request.clone();
     let mut lut_files = Vec::new();
     for effect in &mut export_request.effects {
-        let Some(lut) = effect.lut.as_mut() else { continue };
+        let Some(lut) = effect.lut.as_mut() else {
+            continue;
+        };
         if lut.size < 2 || lut.size > 64 || lut.cube_text.len() > 16 * 1024 * 1024 {
             return Err("The project contains an unsupported or oversized 3D LUT.".to_string());
         }
-        let sample_count = lut.cube_text.lines().filter(|line| {
-            let line = line.split('#').next().unwrap_or("").trim();
-            let fields = line.split_whitespace().collect::<Vec<_>>();
-            fields.len() == 3 && fields.iter().all(|value| value.parse::<f64>().is_ok())
-        }).count();
+        let sample_count = lut
+            .cube_text
+            .lines()
+            .filter(|line| {
+                let line = line.split('#').next().unwrap_or("").trim();
+                let fields = line.split_whitespace().collect::<Vec<_>>();
+                fields.len() == 3 && fields.iter().all(|value| value.parse::<f64>().is_ok())
+            })
+            .count();
         if sample_count != lut.size.pow(3) {
             return Err(format!("The {} LUT data is malformed.", lut.title));
         }
         let path = ffmpeg::unique_file(&work_dir.join("exports"), "cube");
-        std::fs::write(&path, &lut.cube_text).map_err(|error| format!("Could not prepare LUT for export: {error}"))?;
+        std::fs::write(&path, &lut.cube_text)
+            .map_err(|error| format!("Could not prepare LUT for export: {error}"))?;
         lut.lut_path = Some(path.to_string_lossy().to_string());
         lut_files.push(path);
     }
@@ -1400,7 +1432,9 @@ struct LutFileCleanup(Vec<PathBuf>);
 
 impl Drop for LutFileCleanup {
     fn drop(&mut self) {
-        for path in &self.0 { let _ = std::fs::remove_file(path); }
+        for path in &self.0 {
+            let _ = std::fs::remove_file(path);
+        }
     }
 }
 

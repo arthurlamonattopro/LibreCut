@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use librecut_lib::export::{
-    build_graph, render_with_progress, ExportClip, ExportCompressor, ExportDuckSegment, ExportEffect,
-    ExportRequest, ExportSpeedPoint, ExportText, ExportTransition,
+    build_graph, render_with_progress, ExportClip, ExportCompressor, ExportDuckSegment,
+    ExportEffect, ExportRequest, ExportSpeedPoint, ExportText, ExportTransition,
 };
 use librecut_lib::ffmpeg;
 use librecut_lib::media;

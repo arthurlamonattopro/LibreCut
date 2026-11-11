@@ -36,12 +36,14 @@ case "$(uname -s)" in
     triple="x86_64-apple-darwin"
     tmp="$(mktemp -d)"
     trap 'rm -rf "$tmp"' EXIT
+    info="$(curl --fail --location --retry 3 https://evermeet.cx/ffmpeg/info)"
     for tool in ffmpeg ffprobe; do
-      curl --fail --location --retry 3 "https://evermeet.cx/ffmpeg/getrelease/$tool/zip" -o "$tmp/$tool.zip"
+      url="$(python3 -c 'import json,sys; entries=json.load(sys.stdin); print(next(item["download"]["zip"]["url"] for item in entries if item["name"] == sys.argv[1] and item["type"] == "snapshot"))' "$tool" <<< "$info")"
+      curl --fail --location --retry 3 "$url" -o "$tmp/$tool.zip"
       ditto -x -k "$tmp/$tool.zip" "$tmp/$tool"
       install -m 755 "$tmp/$tool/$tool" "$dest/$tool-$triple"
     done
-    printf '%s\n' 'Source: https://evermeet.cx/ffmpeg/' "Downloaded: $(date -u +%FT%TZ)" > "$legal/FFMPEG-BUILD-INFO-macos.txt"
+    printf '%s\n' 'Source: https://evermeet.cx/ffmpeg/info' "FFmpeg version: $("$dest/ffmpeg-$triple" -version | sed -n '1s/^ffmpeg version //p')" "Downloaded: $(date -u +%FT%TZ)" > "$legal/FFMPEG-BUILD-INFO-macos.txt"
     ;;
   *) echo "Unsupported operating system: $(uname -s)" >&2; exit 1 ;;
 esac

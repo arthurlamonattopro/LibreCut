@@ -71,7 +71,9 @@ function parseValues(input: unknown, kind: "effect" | "text", index: number) {
     } else if (key === "fontFamily") {
       if (typeof value !== "string" || !/^[\w ,'-]{1,64}$/.test(value)) throw new Error(`Text preset ${index + 1} has an invalid font family.`);
     } else {
-      const [min, max] = (allowed as Record<string, [number, number] | null>)[key] ?? [];
+      const range = (allowed as Record<string, [number, number] | null>)[key];
+      if (!range) throw new Error(`${key} is not a numeric setting.`);
+      const [min, max] = range;
       if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) throw new Error(`${key} in ${kind} ${index + 1} must be between ${min} and ${max}.`);
     }
     result[key] = value;

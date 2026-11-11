@@ -15,7 +15,10 @@ pub struct OfflineModelStatus {
 }
 
 fn app_models_root<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
-    app.path().app_data_dir().ok().map(|path| path.join("models"))
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|path| path.join("models"))
 }
 
 fn resource_models_root<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
@@ -98,7 +101,8 @@ pub fn offline_model_status<R: Runtime>(app: AppHandle<R>) -> OfflineModelStatus
 #[tauri::command]
 pub fn ensure_models_dir<R: Runtime>(app: AppHandle<R>) -> Result<String, String> {
     let root = app_models_root(&app).ok_or("Could not locate the application data folder")?;
-    fs::create_dir_all(&root).map_err(|error| format!("Could not create models folder: {error}"))?;
+    fs::create_dir_all(&root)
+        .map_err(|error| format!("Could not create models folder: {error}"))?;
     Ok(root.to_string_lossy().to_string())
 }
 
@@ -151,7 +155,9 @@ pub fn handle_protocol<R: Runtime>(
         .to_string();
     let relative = decoded.trim_start_matches('/');
     if relative.is_empty()
-        || relative.split('/').any(|part| part == ".." || part.contains('\\'))
+        || relative
+            .split('/')
+            .any(|part| part == ".." || part.contains('\\'))
     {
         return not_found();
     }
