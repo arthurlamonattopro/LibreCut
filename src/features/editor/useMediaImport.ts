@@ -11,6 +11,7 @@ import {
 } from "../../lib/media";
 import type { Asset, MediaProgress } from "../../lib/types";
 import { toast } from "../../components/Toast";
+import { logSlowOperation } from "../../lib/performance";
 
 const SUPPORTED = new Set([
   "mp4", "m4v", "mov", "webm", "mkv", "avi",
@@ -93,12 +94,21 @@ export function useMediaImport() {
           const path = usable[nextPath++];
           const importStarted = performance.now();
         try {
+          const probeStarted = performance.now();
           const registered = await registerMedia(path);
           const info = registered.info;
+          logSlowOperation("media probe", probeStarted, {
+            width: info.width, height: info.height, bytes: info.sizeBytes,
+          });
+          const analysisStarted = performance.now();
           const [thumbnails, waveform] = await Promise.all([
             generateThumbnails(path).catch(() => [] as string[]),
             info.hasAudio ? generateWaveform(path).catch(() => [] as number[]) : Promise.resolve([] as number[]),
           ]);
+          logSlowOperation("media analysis", analysisStarted, {
+            thumbnails: thumbnails.length, waveformSamples: waveform.length,
+            width: info.width, height: info.height,
+          });
 
           const asset: Asset = {
             id: crypto.randomUUID(),
@@ -119,10 +129,9 @@ export function useMediaImport() {
             replaceAsset(asset.id, { proxyStatus: "generating" });
             retryProxy(asset);
           }
-          const elapsedMs = performance.now() - importStarted;
-          if (elapsedMs > 250 && import.meta.env.DEV) {
-            console.warn("LibreCut slow media import", { elapsedMs: Math.round(elapsedMs), width: info.width, height: info.height, hasAudio: info.hasAudio });
-          }
+          logSlowOperation("media import", importStarted, {
+            width: info.width, height: info.height, hasAudio: info.hasAudio,
+          }, 250);
         } catch (error) {
           const details = error instanceof Error ? error.message : String(error);
           const diagnosis = /probe|decode|invalid data|moov atom|corrupt|stream/i.test(details)

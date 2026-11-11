@@ -2,6 +2,7 @@ import type { Project, ProjectSummary, Track, TrackKind } from "../lib/types";
 import { projectDuration } from "../lib/time";
 import { normalizeProject } from "../lib/project";
 import { DEFAULT_DUCKING } from "../lib/audio";
+import { logSlowOperation, projectProfile } from "../lib/performance";
 
 const INDEX_KEY = "librecut:projects:v1";
 const PROJECT_KEY = (id: string) => `librecut:project:${id}:v1`;
@@ -89,9 +90,11 @@ export function persistProject(project: Project): ProjectSummary {
   const saveStarted = performance.now();
   const summary = summarize(project);
   const key = PROJECT_KEY(project.id);
+  let serializedBytes = 0;
 
   try {
     const serialized = JSON.stringify(project);
+    if (import.meta.env.DEV) serializedBytes = new Blob([serialized]).size;
     localStorage.setItem(key, serialized);
   } catch {
     // Thumbnails and waveforms are regenerable caches. Drop them rather than
@@ -101,7 +104,9 @@ export function persistProject(project: Project): ProjectSummary {
       assets: project.assets.map((asset) => ({ ...asset, thumbnails: [], waveform: [] })),
     };
     try {
-      localStorage.setItem(key, JSON.stringify(slim));
+      const serialized = JSON.stringify(slim);
+      if (import.meta.env.DEV) serializedBytes = new Blob([serialized]).size;
+      localStorage.setItem(key, serialized);
     } catch {
       // Storage is unavailable; Save copy still provides a durable backup.
     }
@@ -109,14 +114,10 @@ export function persistProject(project: Project): ProjectSummary {
 
   const others = listProjects().filter((item) => item.id !== project.id);
   writeIndex([summary, ...others]);
-  const elapsedMs = performance.now() - saveStarted;
-  if (elapsedMs > 100 && import.meta.env.DEV) {
-    console.warn("LibreCut slow project save", {
-      elapsedMs: Math.round(elapsedMs),
-      assets: project.assets.length,
-      clips: project.tracks.reduce((count, track) => count + track.clips.length, 0),
-    });
-  }
+  logSlowOperation("project save", saveStarted, {
+    ...projectProfile(project),
+    serializedBytes,
+  });
   return summary;
 }
 

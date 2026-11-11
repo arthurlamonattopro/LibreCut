@@ -119,7 +119,7 @@ platform support and no loss of the local-first promise. Scope will be narrowed
 based on preview feedback; this is a target, not a release-date commitment.
 
 - [ ] Performance hardening for long timelines and 4K sources
-  - [ ] Set representative project sizes and playback/export performance targets
+  - [x] Set representative project sizes and playback/export performance targets ([profile](docs/performance.md))
   - [ ] Profile memory, decode, timeline interaction, and project-save behavior
   - [ ] Avoid blocking the editor during imports, proxy work, and other long tasks
 - [ ] Accessibility and interaction quality
