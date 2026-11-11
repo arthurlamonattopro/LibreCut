@@ -23,6 +23,8 @@ pub struct ExportClip {
     pub trim_in: f64,
     #[serde(default = "default_speed")]
     pub speed: f64,
+    #[serde(default)]
+    pub speed_ramp: Vec<ExportSpeedPoint>,
     pub volume: f64,
     pub opacity: f64,
     pub has_audio: bool,
@@ -54,11 +56,75 @@ pub struct ExportClip {
     #[serde(default)]
     pub treble: f64,
     #[serde(default)]
+    pub mid: f64,
+    #[serde(default = "default_bass_frequency")]
+    pub bass_frequency: f64,
+    #[serde(default = "default_mid_frequency")]
+    pub mid_frequency: f64,
+    #[serde(default = "default_mid_width")]
+    pub mid_width: f64,
+    #[serde(default = "default_treble_frequency")]
+    pub treble_frequency: f64,
+    #[serde(default)]
+    pub pan: f64,
+    #[serde(default)]
+    pub compressor: Option<ExportCompressor>,
+    #[serde(default)]
+    pub duck_segments: Vec<ExportDuckSegment>,
+    #[serde(default)]
     pub keyframes: Vec<ExportKeyframe>,
     #[serde(default)]
     pub transition_in: ExportTransition,
     #[serde(default)]
     pub transition_out: ExportTransition,
+}
+
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportCompressor {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Threshold in decibels.
+    #[serde(default)]
+    pub threshold: f64,
+    #[serde(default = "default_ratio")]
+    pub ratio: f64,
+    /// Attack time in milliseconds.
+    #[serde(default = "default_compressor_attack")]
+    pub attack: f64,
+    /// Release time in milliseconds.
+    #[serde(default = "default_compressor_release")]
+    pub release: f64,
+}
+
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportDuckSegment {
+    #[serde(default)]
+    pub start: f64,
+    #[serde(default)]
+    pub end: f64,
+    #[serde(default = "default_duck_from")]
+    pub from: f64,
+    #[serde(default = "default_duck_from")]
+    pub to: f64,
+}
+
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSpeedPoint {
+    #[serde(default)]
+    pub time: f64,
+    #[serde(default = "default_speed")]
+    pub speed: f64,
+}
+
+#[derive(Clone, Debug)]
+struct SpeedSegment {
+    output_start: f64,
+    speed: f64,
+    source_start: f64,
+    source_duration: f64,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -87,19 +153,31 @@ pub struct ExportText {
     #[serde(default)]
     pub font_weight: Option<String>,
     #[serde(default)]
+    pub italic: bool,
+    #[serde(default)]
+    pub font_family: Option<String>,
+    #[serde(default)]
     pub align: Option<String>,
     #[serde(default)]
     pub underline: bool,
     #[serde(default)]
     pub character_spacing: f64,
+    #[serde(default = "default_line_height")]
+    pub line_height: f64,
     #[serde(default)]
     pub outline_color: Option<String>,
     #[serde(default)]
     pub outline_width: f64,
+    #[serde(default)]
+    pub background_color: Option<String>,
+    #[serde(default)]
+    pub background_opacity: f64,
     #[serde(default = "default_text_brightness")]
     pub brightness: f64,
     #[serde(default)]
     pub shadow: f64,
+    #[serde(default)]
+    pub shadow_color: Option<String>,
     #[serde(default)]
     pub curve: f64,
     #[serde(default)]
@@ -200,6 +278,33 @@ fn default_scale() -> f64 {
 fn default_text_brightness() -> f64 {
     1.0
 }
+fn default_line_height() -> f64 {
+    1.2
+}
+fn default_bass_frequency() -> f64 {
+    180.0
+}
+fn default_mid_frequency() -> f64 {
+    1000.0
+}
+fn default_mid_width() -> f64 {
+    1.0
+}
+fn default_treble_frequency() -> f64 {
+    4000.0
+}
+fn default_ratio() -> f64 {
+    4.0
+}
+fn default_compressor_attack() -> f64 {
+    12.0
+}
+fn default_compressor_release() -> f64 {
+    180.0
+}
+fn default_duck_from() -> f64 {
+    1.0
+}
 
 fn atempo_filters(speed: f64) -> String {
     let mut factor = speed.clamp(0.25, 4.0);
@@ -216,6 +321,117 @@ fn atempo_filters(speed: f64) -> String {
         filters.push(format!("atempo={factor:.4}"));
     }
     filters.join(",")
+}
+
+fn normalize_speed_ramp(points: &[ExportSpeedPoint], duration: f64) -> Vec<(f64, f64)> {
+    let safe_duration = duration.max(0.1);
+    let mut ramp: Vec<(f64, f64)> = points
+        .iter()
+        .filter(|point| point.time.is_finite() && point.speed.is_finite())
+        .map(|point| {
+            (
+                point.time.clamp(0.0, safe_duration),
+                point.speed.clamp(0.25, 4.0),
+            )
+        })
+        .collect();
+    ramp.sort_by(|a, b| a.0.total_cmp(&b.0));
+
+    let mut unique: Vec<(f64, f64)> = Vec::new();
+    for point in ramp {
+        if let Some(last) = unique.last_mut() {
+            if (last.0 - point.0).abs() < 1e-4 {
+                *last = point;
+                continue;
+            }
+        }
+        unique.push(point);
+    }
+
+    if unique.len() < 2 {
+        return Vec::new();
+    }
+    if unique[0].0 > 1e-4 {
+        unique.insert(0, (0.0, unique[0].1));
+    }
+    if unique[unique.len() - 1].0 < safe_duration - 1e-4 {
+        let speed = unique[unique.len() - 1].1;
+        unique.push((safe_duration, speed));
+    }
+    unique
+}
+
+fn speed_at(ramp: &[(f64, f64)], time: f64) -> f64 {
+    for index in 0..ramp.len().saturating_sub(1) {
+        let (from_time, from_speed) = ramp[index];
+        let (to_time, to_speed) = ramp[index + 1];
+        if time <= to_time {
+            let span = (to_time - from_time).max(1e-6);
+            return from_speed + (to_speed - from_speed) * ((time - from_time) / span);
+        }
+    }
+    ramp.last().map(|point| point.1).unwrap_or(1.0)
+}
+
+fn speed_segments(points: &[ExportSpeedPoint], duration: f64) -> Vec<SpeedSegment> {
+    let safe_duration = duration.max(0.05);
+    let ramp = normalize_speed_ramp(points, safe_duration);
+    if ramp.len() < 2 {
+        return vec![SpeedSegment {
+            output_start: 0.0,
+            speed: 1.0,
+            source_start: 0.0,
+            source_duration: safe_duration,
+        }];
+    }
+
+    let sample_count = 120.min(
+        (ramp.len() - 1)
+            .max((safe_duration / 0.08).ceil() as usize)
+            .max(1),
+    );
+    let step = safe_duration / sample_count as f64;
+    let mut segments = Vec::with_capacity(sample_count);
+    let mut source_cursor = 0.0;
+    for index in 0..sample_count {
+        let start = index as f64 * step;
+        let end = if index == sample_count - 1 {
+            safe_duration
+        } else {
+            (index + 1) as f64 * step
+        };
+        let speed = speed_at(&ramp, (start + end) / 2.0).clamp(0.25, 4.0);
+        let segment_duration = end - start;
+        let source_duration = speed * segment_duration;
+        segments.push(SpeedSegment {
+            output_start: start,
+            speed,
+            source_start: source_cursor,
+            source_duration,
+        });
+        source_cursor += source_duration;
+    }
+    segments
+}
+
+/// `setpts` expression in seconds that maps trimmed source time back to output
+/// time for a piecewise-constant speed curve.
+fn speed_setpts_expr(segments: &[SpeedSegment]) -> String {
+    let Some(last) = segments.last() else {
+        return "0".to_string();
+    };
+    let mut expr = format!(
+        "{:.6}+((T-STARTT)-{:.6})/{:.6}",
+        last.output_start, last.source_start, last.speed
+    );
+    for segment in segments.iter().rev().skip(1) {
+        let source_end = segment.source_start + segment.source_duration;
+        expr = format!(
+            "if(lt((T-STARTT),{source_end:.6}),{:.6}+((T-STARTT)-{:.6})/{:.6},{expr})",
+            segment.output_start, segment.source_start, segment.speed
+        );
+    }
+    expr
 }
 
 fn escape_text(text: &str) -> String {
@@ -246,27 +462,41 @@ fn drawtext_color(color: &str, brightness: f64) -> String {
     }
 }
 
-fn font_file(weight: Option<&str>) -> String {
-    std::env::var("LIBRECUT_FONT").unwrap_or_else(|_| {
-        let windows_font = Path::new(if weight == Some("bold") {
-            r"C:\Windows\Fonts\arialbd.ttf"
-        } else {
-            r"C:\Windows\Fonts\arial.ttf"
-        });
-        if windows_font.is_file() {
-            if weight == Some("bold") {
-                r"C\:/Windows/Fonts/arialbd.ttf".to_string()
-            } else {
-                r"C\:/Windows/Fonts/arial.ttf".to_string()
-            }
-        } else {
-            if weight == Some("bold") {
-                "Arial Bold".to_string()
-            } else {
-                "Arial".to_string()
-            }
-        }
-    })
+fn font_file(weight: Option<&str>, family: Option<&str>, italic: bool) -> String {
+    if let Ok(override_font) = std::env::var("LIBRECUT_FONT") {
+        return override_font;
+    }
+    let bold = weight == Some("bold");
+    let family = family.unwrap_or("Segoe UI").to_ascii_lowercase();
+    let faces = match family.as_str() {
+        "georgia" => ("georgia.ttf", "georgiab.ttf", "georgiai.ttf", "georgiaz.ttf"),
+        "times new roman" => ("times.ttf", "timesbd.ttf", "timesi.ttf", "timesbi.ttf"),
+        "courier new" => ("cour.ttf", "courbd.ttf", "couri.ttf", "courbi.ttf"),
+        "impact" => ("impact.ttf", "impact.ttf", "impact.ttf", "impact.ttf"),
+        "trebuchet ms" => ("trebuc.ttf", "trebucbd.ttf", "trebucit.ttf", "trebucbi.ttf"),
+        "verdana" => ("verdana.ttf", "verdanab.ttf", "verdanai.ttf", "verdanaz.ttf"),
+        "arial" => ("arial.ttf", "arialbd.ttf", "ariali.ttf", "arialbi.ttf"),
+        _ => ("segoeui.ttf", "segoeuib.ttf", "segoeuii.ttf", "segoeuiz.ttf"),
+    };
+    let file = match (bold, italic) {
+        (true, true) => faces.3,
+        (true, false) => faces.1,
+        (false, true) => faces.2,
+        (false, false) => faces.0,
+    };
+    let fallback = if bold { "arialbd.ttf" } else { "arial.ttf" };
+    let chosen = if Path::new(&format!(r"C:\Windows\Fonts\{file}")).is_file() {
+        file
+    } else {
+        fallback
+    };
+    if Path::new(&format!(r"C:\Windows\Fonts\{chosen}")).is_file() {
+        format!("C\\:/Windows/Fonts/{chosen}")
+    } else if bold {
+        "Arial Bold".to_string()
+    } else {
+        "Arial".to_string()
+    }
 }
 
 fn keyframe_expr(keyframes: &[ExportKeyframe], property: &str, base: f64, local: &str) -> String {
@@ -294,6 +524,52 @@ fn keyframe_expr(keyframes: &[ExportKeyframe], property: &str, base: f64, local:
         }
     }
     format!("if(lt({local},{:.6}),{base:.6},{expr})", frames[0].time)
+}
+
+/// Stereo pan gains that match the Web Audio API panning law.
+fn pan_gains(pan: f64) -> (f64, f64) {
+    let value = pan.clamp(-1.0, 1.0);
+    if value < 0.0 {
+        (
+            (value * std::f64::consts::PI / 2.0).cos(),
+            1.0 + value,
+        )
+    } else if value > 0.0 {
+        (1.0 - value, (value * std::f64::consts::PI / 2.0).sin())
+    } else {
+        (1.0, 1.0)
+    }
+}
+
+/// Builds a volume expression that applies a ducking envelope on the project
+/// timeline. Segments are absolute time ramps with a start and end gain.
+fn duck_volume_expr(segments: &[ExportDuckSegment]) -> Option<String> {
+    let mut usable: Vec<&ExportDuckSegment> = segments
+        .iter()
+        .filter(|segment| segment.end > segment.start)
+        .collect();
+    if usable.is_empty() {
+        return None;
+    }
+    usable.sort_by(|a, b| a.start.total_cmp(&b.start));
+
+    let mut expr = String::from("1");
+    for segment in usable.iter().rev() {
+        let span = segment.end - segment.start;
+        let ramp = if span > 0.0005 {
+            format!(
+                "({:.6})+({:.6})*max(0,min(1,(t-{:.6})/{:.6}))",
+                segment.from,
+                segment.to - segment.from,
+                segment.start,
+                span
+            )
+        } else {
+            format!("{:.6}", segment.to)
+        };
+        expr = format!("if(lt(t,{:.6}),{ramp},{expr})", segment.end);
+    }
+    Some(expr)
 }
 
 fn transition_fade_expr(
@@ -346,7 +622,21 @@ pub fn build_graph(request: &ExportRequest) -> String {
         } else {
             clip.speed.clamp(0.25, 4.0)
         };
-        let source_duration = clip_duration * speed;
+        let speed_ramp = if clip.is_image {
+            Vec::new()
+        } else {
+            normalize_speed_ramp(&clip.speed_ramp, clip_duration)
+        };
+        let segments = if speed_ramp.len() >= 2 {
+            speed_segments(&clip.speed_ramp, clip_duration)
+        } else {
+            Vec::new()
+        };
+        let source_duration = if segments.is_empty() {
+            clip_duration * speed
+        } else {
+            segments.iter().map(|segment| segment.source_duration).sum()
+        };
         let trim = clip.trim_in.max(0.0);
         let end = start + clip_duration;
         let fit = clip.fit.as_deref().unwrap_or("contain");
@@ -361,9 +651,14 @@ pub fn build_graph(request: &ExportRequest) -> String {
         };
         let timing = if clip.is_image {
             format!("trim=duration={clip_duration:.3},setpts=PTS-STARTPTS+{start:.3}/TB")
-        } else {
+        } else if segments.is_empty() {
             format!(
                 "trim=start={trim:.3}:duration={source_duration:.3},setpts=(PTS-STARTPTS)/{speed:.4}+{start:.3}/TB"
+            )
+        } else {
+            let expr = speed_setpts_expr(&segments);
+            format!(
+                "trim=start={trim:.3}:duration={source_duration:.3},setpts=({expr})/TB+{start:.3}/TB"
             )
         };
         let local_t = format!("(t-{start:.6})");
@@ -515,8 +810,6 @@ pub fn build_graph(request: &ExportRequest) -> String {
     for (index, text) in request.texts.iter().enumerate() {
         let start = text.start.max(0.0);
         let end = (text.start + text.duration.max(0.04)).max(start + 0.04);
-        let x = (text.x.clamp(0.0, 1.0) * 100.0).round() / 100.0;
-        let y = (text.y.clamp(0.0, 1.0) * 100.0).round() / 100.0;
         let local_t = format!("(t-{start:.6})");
         let x_expr = keyframe_expr(&text.keyframes, "x", text.x, &local_t);
         let y_expr = keyframe_expr(&text.keyframes, "y", text.y, &local_t);
@@ -545,7 +838,11 @@ pub fn build_graph(request: &ExportRequest) -> String {
         } else {
             "1".to_string()
         };
-        let font = font_file(text.font_weight.as_deref());
+        let font = font_file(
+            text.font_weight.as_deref(),
+            text.font_family.as_deref(),
+            text.italic,
+        );
         let color = drawtext_color(&text.color, text.brightness);
         let outline = text.outline_color.as_deref().unwrap_or("#000000");
         let size = text.size.max(8.0).round();
@@ -556,8 +853,35 @@ pub fn build_graph(request: &ExportRequest) -> String {
             _ => "text_w/2",
         };
         let shadow = text.shadow.clamp(0.0, 1.0);
-        let common = format!("fontfile='{}':fontcolor={}:fontsize={}:borderw={:.2}:bordercolor={}:shadowcolor=black@{shadow:.3}:shadowx={:.2}:shadowy={:.2}:alpha='({opacity_expr})*({text_fade_in})*({text_fade_out})'",
-            font, color, size, text.outline_width.max(0.0), drawtext_color(outline, 1.0), shadow * 3.0, shadow * 3.0);
+        let shadow_color = text.shadow_color.as_deref().unwrap_or("#000000");
+        let line_height = text.line_height.clamp(0.8, 3.0);
+        let line_spacing = ((line_height - 1.0) * size).max(0.0);
+        let text_lines: Vec<&str> = text.text.split('\n').collect();
+        let line_count = text_lines.len() as f64;
+        let widest = text_lines
+            .iter()
+            .map(|line| line.chars().count() as f64)
+            .fold(1.0, f64::max);
+        let box_width = (widest * size * 0.6 + text.character_spacing * widest).max(size * 0.6);
+        let box_height = line_count * size * line_height;
+        let box_padding = size * 0.2;
+        let common = format!("fontfile='{}':fontcolor={}:fontsize={}:borderw={:.2}:bordercolor={}:shadowcolor={}@{shadow:.3}:shadowx={:.2}:shadowy={:.2}:line_spacing={line_spacing:.2}:alpha='({opacity_expr})*({text_fade_in})*({text_fade_out})'",
+            font, color, size, text.outline_width.max(0.0), drawtext_color(outline, 1.0), drawtext_color(shadow_color, 1.0), shadow * 3.0, shadow * 3.0);
+        if text.background_opacity > 0.001 {
+            let background = drawtext_color(
+                text.background_color.as_deref().unwrap_or("#000000"),
+                1.0,
+            );
+            let box_x = match align {
+                "left" => format!("w*({x_expr})-{box_padding:.2}"),
+                "right" => format!("w*({x_expr})-{box_width:.2}-{box_padding:.2}"),
+                _ => format!("w*({x_expr})-{:.2}-{box_padding:.2}", box_width / 2.0),
+            };
+            let label = format!("txt{index}_bg");
+            lines.push(format!("[{base}]drawbox=x={box_x}:y=h*({y_expr})-{:.2}:w={:.2}:h={:.2}:color={background}@{:.3}:t=fill:enable='between(t,{start:.3},{end:.3})'[{label}]",
+                box_height / 2.0 + box_padding, box_width + box_padding * 2.0, box_height + box_padding * 2.0, text.background_opacity.clamp(0.0, 1.0)));
+            base = label;
+        }
         if text.curve.abs() < 1.0
             && text.character_spacing.abs() < 0.01
             && text.rotation.abs() < 0.01
@@ -568,6 +892,17 @@ pub fn build_graph(request: &ExportRequest) -> String {
             let dynamic_y = format!("h*({y_expr})-text_h/2");
             lines.push(format!("[{base}]drawtext={common}:text='{}':x={dynamic_anchor}-{offset}:y={dynamic_y}:enable='between(t,{start:.3},{end:.3})'[{label}]", escape_text(&text.text)));
             base = label;
+        } else if text.text.contains('\n') {
+            let anchor_x = format!("w*({x_expr})");
+            for (line_index, line_text) in text_lines.iter().enumerate() {
+                let line_y = format!(
+                    "h*({y_expr})+{:.2}-text_h/2",
+                    (line_index as f64 - (line_count - 1.0) / 2.0) * size * line_height
+                );
+                let label = format!("txt{index}_line{line_index}");
+                lines.push(format!("[{base}]drawtext={common}:text='{}':x={anchor_x}-{offset}:y={line_y}:enable='between(t,{start:.3},{end:.3})'[{label}]", escape_text(line_text)));
+                base = label;
+            }
         } else {
             let chars: Vec<char> = text.text.chars().collect();
             let widths: Vec<f64> = chars
@@ -616,17 +951,21 @@ pub fn build_graph(request: &ExportRequest) -> String {
             }
         }
         if text.underline {
-            let underline_width = (text.text.chars().count() as f64 * size * 0.6
-                + text.character_spacing * text.text.chars().count() as f64)
-                .max(1.0);
-            let underline_x = match align {
-                "left" => format!("w*{x:.3}"),
-                "right" => format!("w*{x:.3}-{underline_width:.2}"),
-                _ => format!("w*{x:.3}-{:.2}", underline_width / 2.0),
-            };
-            let label = format!("txt{index}_underline");
-            lines.push(format!("[{base}]drawbox=x={underline_x}:y=h*{y:.3}+{:.2}:w={underline_width:.2}:h={:.2}:color={}@{:.3}:t=fill:enable='between(t,{start:.3},{end:.3})'[{label}]", size * 0.55, (size * 0.045).max(1.0), color, text.opacity.clamp(0.0, 1.0)));
-            base = label;
+            for (line_index, line_text) in text_lines.iter().enumerate() {
+                let count = line_text.chars().count() as f64;
+                let underline_width = (count * size * 0.6 + text.character_spacing * count).max(1.0);
+                let anchor_x = format!("w*({x_expr})");
+                let underline_x = match align {
+                    "left" => format!("{anchor_x}"),
+                    "right" => format!("{anchor_x}-{underline_width:.2}"),
+                    _ => format!("{anchor_x}-{:.2}", underline_width / 2.0),
+                };
+                let line_offset = (line_index as f64 - (line_count - 1.0) / 2.0) * size * line_height;
+                let label = format!("txt{index}_underline{line_index}");
+                lines.push(format!("[{base}]drawbox=x={underline_x}:y=h*({y_expr})+{:.2}:w={underline_width:.2}:h={:.2}:color={}@{:.3}:t=fill:enable='between(t,{start:.3},{end:.3})'[{label}]",
+                    line_offset + size * 0.55, (size * 0.045).max(1.0), color, text.opacity.clamp(0.0, 1.0)));
+                base = label;
+            }
         }
     }
 
@@ -641,12 +980,71 @@ pub fn build_graph(request: &ExportRequest) -> String {
         for (index, clip) in &audio_clips {
             let start_ms = (clip.start.max(0.0) * 1000.0).round() as u64;
             let speed = clip.speed.clamp(0.25, 4.0);
-            let source_duration = clip.duration.max(0.04) * speed;
-            let tempo = atempo_filters(speed);
-            let tempo_part = if tempo.is_empty() {
-                String::new()
+            let clip_duration = clip.duration.max(0.04);
+            let ramp = normalize_speed_ramp(&clip.speed_ramp, clip_duration);
+            let ramp_active = ramp.len() >= 2;
+            let source_duration = if ramp_active {
+                speed_segments(&clip.speed_ramp, clip_duration)
+                    .iter()
+                    .map(|segment| segment.source_duration)
+                    .sum()
             } else {
-                format!(",{tempo}")
+                clip_duration * speed
+            };
+            let (audio_input, trim_part, tempo_part) = if ramp_active {
+                let segments = speed_segments(&clip.speed_ramp, clip_duration);
+                let count = segments.len();
+                let split_labels: Vec<String> =
+                    (0..count).map(|segment| format!("sp{index}_{segment}")).collect();
+                let split_outputs: Vec<String> = (0..count)
+                    .map(|segment| format!("sp{index}_{segment}o"))
+                    .collect();
+                lines.push(format!(
+                    "[{index}:a]asplit={count}{}",
+                    split_labels
+                        .iter()
+                        .map(|label| format!("[{label}]"))
+                        .collect::<String>()
+                ));
+                for (segment_index, segment) in segments.iter().enumerate() {
+                    let tempo = atempo_filters(segment.speed);
+                    let tempo_filter = if tempo.is_empty() {
+                        String::new()
+                    } else {
+                        format!(",{tempo}")
+                    };
+                    lines.push(format!(
+                        "[{}]atrim=start={:.3}:duration={:.3},asetpts=PTS-STARTPTS{}[{}]",
+                        split_labels[segment_index],
+                        clip.trim_in.max(0.0) + segment.source_start,
+                        segment.source_duration,
+                        tempo_filter,
+                        split_outputs[segment_index]
+                    ));
+                }
+                lines.push(format!(
+                    "{}concat=n={count}:v=0:a=1[concat{index}]",
+                    split_outputs
+                        .iter()
+                        .map(|label| format!("[{label}]"))
+                        .collect::<String>()
+                ));
+                (format!("[concat{index}]"), String::new(), String::new())
+            } else {
+                let tempo = atempo_filters(speed);
+                let tempo_part = if tempo.is_empty() {
+                    String::new()
+                } else {
+                    format!(",{tempo}")
+                };
+                (
+                    format!("[{index}:a]"),
+                    format!(
+                        "atrim=start={:.3}:duration={source_duration:.3},asetpts=PTS-STARTPTS",
+                        clip.trim_in.max(0.0)
+                    ),
+                    tempo_part,
+                )
             };
             let pitch_ratio = 2.0f64.powf(clip.pitch.clamp(-12.0, 12.0) / 12.0);
             let pitch_filter = if (pitch_ratio - 1.0).abs() > 0.001 {
@@ -658,14 +1056,50 @@ pub fn build_graph(request: &ExportRequest) -> String {
                 String::new()
             };
             let bass_filter = if clip.bass.abs() > 0.01 {
-                format!(",bass=g={:.2}:f=180", clip.bass.clamp(-12.0, 12.0))
+                format!(
+                    ",bass=g={:.2}:f={:.1}",
+                    clip.bass.clamp(-12.0, 12.0),
+                    clip.bass_frequency.clamp(20.0, 20000.0)
+                )
+            } else {
+                String::new()
+            };
+            let mid_filter = if clip.mid.abs() > 0.01 {
+                format!(
+                    ",equalizer=f={:.1}:t=o:w={:.3}:g={:.2}",
+                    clip.mid_frequency.clamp(20.0, 20000.0),
+                    clip.mid_width.clamp(0.1, 6.0),
+                    clip.mid.clamp(-24.0, 24.0)
+                )
             } else {
                 String::new()
             };
             let treble_filter = if clip.treble.abs() > 0.01 {
-                format!(",treble=g={:.2}:f=4000", clip.treble.clamp(-12.0, 12.0))
+                format!(
+                    ",treble=g={:.2}:f={:.1}",
+                    clip.treble.clamp(-12.0, 12.0),
+                    clip.treble_frequency.clamp(20.0, 20000.0)
+                )
             } else {
                 String::new()
+            };
+            let pan_filter = if clip.pan.abs() > 0.001 {
+                let (left, right) = pan_gains(clip.pan);
+                format!(",pan=stereo|c0={left:.4}*c0|c1={right:.4}*c1")
+            } else {
+                String::new()
+            };
+            let compressor_filter = match clip.compressor.as_ref() {
+                Some(compressor) if compressor.enabled => {
+                    let threshold = 10f64.powf(compressor.threshold.clamp(-60.0, 0.0) / 20.0);
+                    format!(
+                        ",acompressor=threshold={threshold:.6}:ratio={:.2}:attack={:.2}:release={:.2}:makeup=1",
+                        compressor.ratio.clamp(1.0, 20.0),
+                        compressor.attack.clamp(0.01, 2000.0),
+                        compressor.release.clamp(0.01, 9000.0)
+                    )
+                }
+                _ => String::new(),
             };
             let fade_in = clip.fade_in.clamp(0.0, clip.duration.max(0.0));
             let fade_out = clip.fade_out.clamp(0.0, clip.duration.max(0.0));
@@ -709,9 +1143,12 @@ pub fn build_graph(request: &ExportRequest) -> String {
                 }
             );
             let volume_expr = keyframe_expr(&clip.keyframes, "volume", clip.volume, "t");
+            let duck_filter = match duck_volume_expr(&clip.duck_segments) {
+                Some(expr) => format!(",volume='{expr}':eval=frame"),
+                None => String::new(),
+            };
             lines.push(format!(
-                "[{index}:a]atrim=start={:.3}:duration={source_duration:.3},asetpts=PTS-STARTPTS{pitch_filter}{tempo_part},aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo{bass_filter}{treble_filter},volume='{volume_expr}':eval=frame{fade_filters},adelay={start_ms}|{start_ms}[a{index}]",
-                clip.trim_in.max(0.0),
+                "{audio_input}{trim_part}{pitch_filter}{tempo_part},aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo{bass_filter}{mid_filter}{treble_filter}{pan_filter}{compressor_filter},volume='{volume_expr}':eval=frame{fade_filters},adelay={start_ms}|{start_ms}{duck_filter}[a{index}]"
             ));
         }
         let inputs: String = audio_clips

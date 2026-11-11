@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
+  AudioWaveform,
+  ChevronsRight,
   Eye,
   EyeOff,
   Film,
@@ -25,6 +27,7 @@ import {
   useEditor,
 } from "../../stores/editor";
 import { clamp, formatClock, projectDuration, snapTime } from "../../lib/time";
+import { DEFAULT_DUCKING } from "../../lib/audio";
 import type { Asset, Clip, Track, TrackKind } from "../../lib/types";
 
 const LABEL_WIDTH = 154;
@@ -71,6 +74,7 @@ export function Timeline({ height = 310 }: { height?: number }) {
   const selectedClipId = useEditor((state) => state.selectedClipId);
   const zoom = useEditor((state) => state.zoom);
   const snap = useEditor((state) => state.snap);
+  const ripple = useEditor((state) => state.ripple);
   const setZoom = useEditor((state) => state.setZoom);
   const setCurrentTime = useEditor((state) => state.setCurrentTime);
   const setPlaying = useEditor((state) => state.setPlaying);
@@ -80,6 +84,8 @@ export function Timeline({ height = 310 }: { height?: number }) {
   const recordSnapshot = useEditor((state) => state.recordSnapshot);
   const updateTrack = useEditor((state) => state.updateTrack);
   const toggleSnap = useEditor((state) => state.toggleSnap);
+  const toggleRipple = useEditor((state) => state.toggleRipple);
+  const setMagneticTrack = useEditor((state) => state.setMagneticTrack);
   const undo = useEditor((state) => state.undo);
   const redo = useEditor((state) => state.redo);
   const splitAtPlayhead = useEditor((state) => state.splitAtPlayhead);
@@ -157,6 +163,8 @@ export function Timeline({ height = 310 }: { height?: number }) {
         const targetTrackId = target?.dataset.timelineTrack;
         if (targetTrackId && targetTrackId !== drag.trackId) {
           useEditor.getState().moveClipToTrack(drag.clipId, targetTrackId);
+        } else {
+          useEditor.getState().settleMagneticTrack(drag.trackId);
         }
       }
       dragRef.current = null;
@@ -303,6 +311,14 @@ export function Timeline({ height = 310 }: { height?: number }) {
           >
             <Magnet size={13} /> Snap
           </button>
+          <button
+            className={`btn btn-sm ${ripple ? "btn-secondary text-accent" : "btn-ghost"}`}
+            onClick={toggleRipple}
+            title="Ripple edits: trims and deletes shift later clips"
+            aria-pressed={ripple}
+          >
+            <ChevronsRight size={13} /> Ripple
+          </button>
         </div>
 
         <div className="flex items-center gap-1">
@@ -385,6 +401,8 @@ export function Timeline({ height = 310 }: { height?: number }) {
                   <div className="flex items-center gap-1.5">
                     <Icon size={12} className={track.kind === "text" ? "text-blue" : track.kind === "audio" ? "text-mint" : track.kind === "misc" ? "text-amber" : "text-accent"} />
                     <span className="min-w-0 flex-1 truncate text-[10.5px] font-medium text-ink/90">{track.name}</span>
+                    {track.magnetic ? <span className="rounded border border-accent/40 bg-accent-soft px-1 py-0.5 font-mono text-[8px] leading-none text-accent" title="Magnetic main track">MAIN</span> : null}
+                    {track.ducking?.enabled ? <span className="rounded border border-mint/40 bg-mint/10 px-1 py-0.5 font-mono text-[8px] leading-none text-mint" title="Ducking under other audio">DUCK</span> : null}
                     <span className="rounded border border-white/10 bg-white/[0.04] px-1 py-0.5 font-mono text-[8px] leading-none text-dim" title={`${track.kind} layer ${layerNumber}`}>
                       {layerTag}{layerNumber}
                     </span>
@@ -407,6 +425,26 @@ export function Timeline({ height = 310 }: { height?: number }) {
                         title={track.hidden ? "Show track" : "Hide track"}
                       >
                         {track.hidden ? <EyeOff size={11} /> : <Eye size={11} />}
+                      </button>
+                    ) : null}
+                    {track.kind === "video" ? (
+                      <button
+                        className={`flex h-5 w-5 items-center justify-center rounded transition hover:bg-white/5 ${track.magnetic ? "text-accent" : "text-dim hover:text-ink"}`}
+                        onClick={() => setMagneticTrack(track.magnetic ? null : track.id)}
+                        title={track.magnetic ? "Disable magnetic main track" : "Make this the magnetic main track"}
+                        aria-pressed={Boolean(track.magnetic)}
+                      >
+                        <Magnet size={11} />
+                      </button>
+                    ) : null}
+                    {track.kind === "audio" || track.kind === "video" ? (
+                      <button
+                        className={`flex h-5 w-5 items-center justify-center rounded transition hover:bg-white/5 ${track.ducking?.enabled ? "text-mint" : "text-dim hover:text-ink"}`}
+                        onClick={() => updateTrack(track.id, { ducking: { ...DEFAULT_DUCKING, ...track.ducking, enabled: !track.ducking?.enabled } })}
+                        title={track.ducking?.enabled ? "Disable ducking on this track" : "Duck this track under other audio"}
+                        aria-pressed={Boolean(track.ducking?.enabled)}
+                      >
+                        <AudioWaveform size={11} />
                       </button>
                     ) : null}
                     <button
@@ -497,6 +535,14 @@ function TimelineClip({
   const width = Math.max(8, clip.duration * zoom);
   const left = clip.start * zoom;
   const isAudio = clip.kind === "audio" || (clip.kind === "video" && asset?.info.hasAudio);
+  const volumeFrames = clip.keyframes
+    .filter((frame) => frame.property === "volume")
+    .sort((a, b) => a.time - b.time);
+  const automationPoints = volumeFrames.length >= 2
+    ? volumeFrames
+        .map((frame) => `${((frame.time / Math.max(0.001, clip.duration)) * 100).toFixed(2)},${(100 - Math.min(2, Math.max(0, frame.value)) * 50).toFixed(2)}`)
+        .join(" ")
+    : "";
 
   return (
     <div
@@ -554,6 +600,26 @@ function TimelineClip({
           </div>
         ) : null}
       </div>
+
+      {automationPoints ? (
+        <svg
+          className="pointer-events-none absolute inset-0 h-full w-full"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <polyline points={automationPoints} fill="none" stroke="rgba(105,217,162,0.85)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+        </svg>
+      ) : null}
+
+      {clip.keyframes.length ? clip.keyframes.map((frame, index) => (
+        <span
+          key={`${frame.property}-${frame.time}-${index}`}
+          className="pointer-events-none absolute top-1 h-1.5 w-1.5 rotate-45 bg-accent shadow-[0_0_4px_rgba(54,200,160,0.8)]"
+          style={{ left: Math.min(width - 6, Math.max(0, frame.time * zoom - 3)) }}
+          title={`${frame.property} keyframe at ${frame.time.toFixed(2)}s`}
+        />
+      )) : null}
 
       <button
         className={`absolute bottom-0 left-0 top-0 z-10 w-[7px] cursor-ew-resize transition-colors ${

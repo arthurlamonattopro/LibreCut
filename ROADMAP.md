@@ -33,12 +33,28 @@ Remaining before tagging v0.1:
 
 ## v0.2 — timeline depth
 
-- [ ] Magnetic main track and ripple edits
-- [ ] Speed ramps
-- [ ] More text styling and safe-area guides
-- [ ] Offline model bundles so local AI can work without a first-use download
-- [ ] Audio ducking and expanded EQ controls
-- [ ] More audio processing and timeline automation
+- [x] Magnetic main track and ripple edits
+- [x] Speed ramps
+- [x] More text styling and safe-area guides
+- [x] Offline model bundles so local AI can work without a first-use download
+- [x] Audio ducking and expanded EQ controls
+- [x] More audio processing and timeline automation
+
+What landed in v0.2:
+
+- One designated magnetic track keeps its clips packed, and a ripple toggle makes
+  deletes and trims close the gap on every track.
+- Speed ramps use editable speed points, with an exact preview and a
+  piecewise-constant approximation in the exported file.
+- Text clips gained font family, italics, line height, shadow colour, and a
+  background box; the preview can draw action/title safe areas and thirds.
+- `scripts/fetch-models.ps1` fills a models folder that LibreCut serves over
+  the `librecutmodel` protocol, with a strict offline mode that blocks
+  downloads.
+- Tracks can duck under other audio, and the equalizer grew a mid band with
+  adjustable frequencies.
+- Stereo panning, a per-clip compressor, track volume, and volume automation
+  with timeline curves round out the audio work.
 
 ## v0.3 — effects and ecosystem
 

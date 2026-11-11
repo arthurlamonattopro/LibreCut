@@ -14,6 +14,7 @@ backend over Tauri IPC. All media work happens locally with FFmpeg.
 ┌───────────────────────▼─────────────────────────────────────┐
 │ Rust backend                                                 │
 │  media.rs    probe, thumbnails, waveform, proxy, protocol    │
+│  models.rs   offline model bundles, model protocol           │
 │  export.rs   filter graph, progress, cancel, encoders        │
 │  project.rs  save/load, atomic write, NVENC detection        │
 │  ffmpeg.rs   binary resolution, shared helpers               │
@@ -50,13 +51,34 @@ The protocol handler in `media.rs`:
 The registry is in-memory. On project load the renderer re-registers each asset
 path so IDs stay valid for the session.
 
+## Model protocol
+
+Local AI runs on Transformers.js, which can load model files from disk instead
+of downloading them. `models.rs` exposes those files over a second custom
+scheme:
+
+- `http://librecutmodel.localhost/<org>/<model>/<file>` (Windows) or
+  `librecutmodel://localhost/...`
+- the app data folder (`%APPDATA%\app.librecut.desktop\models`) is searched
+  first, then a bundled `models` resource folder
+- requests are path-checked, so `..` and backslashes are refused
+- `offline_model_status` reports the folder and the model IDs it contains
+
+The renderer points `env.localModelPath` at this scheme before a pipeline is
+created, so a bundled model loads without a network request. Strict offline mode
+sets `env.allowRemoteModels = false` and turns a missing model into an error
+instead of a download. `scripts/fetch-models.ps1` populates the folder with
+Hugging Face repositories.
+
 ## Preview pipeline
 
 Media elements are not displayed directly. The preview:
 
 1. Creates a hidden `<video>`/`<audio>`/`Image` per clip (`syncPool`).
-2. Routes non-image elements through `AudioContext` → `GainNode` so per-clip
-   volume and track mute are sample-accurate.
+2. Routes non-image elements through `AudioContext`:
+   `source → low shelf → mid peak → high shelf → stereo panner → compressor → gain`.
+   Per-clip volume, track volume, ducking, track mute, and fades are applied on
+   the gain node, so they are sample-accurate.
 3. Drives playback with a `requestAnimationFrame` clock. Each tick:
    - advances the timeline time
    - seeks elements whose drift exceeds a tolerance
@@ -80,7 +102,9 @@ color=c=0x101012:s=WxH:r=FPS:d=DURATION[base0];
 [baseN][vi]overlay=0:0:eof_action=pass:enable='between(t,START,END)'[bgN];
 ...
 [baseN]drawtext=...:enable='between(t,START,END)'[txtN];
-[i:a]atrim=...,asetpts=PTS-STARTPTS,atempo...,volume=...,adelay=...[ai];
+[i:a]atrim=...,asetpts=PTS-STARTPTS,atempo=...,
+     bass=...,equalizer=...,treble=...,pan=...,acompressor=...,
+     volume=...,adelay=...,volume='duck(envelope)':eval=frame[ai];
 [a0][a1]...amix=inputs=N:duration=longest:normalize=0,apad,atrim=0:DURATION[aout]
 ```
 
@@ -89,6 +113,9 @@ Why:
 - Gaps and overlaps are natural — there is no requirement for contiguous clips.
 - Audio-only clips and image clips are handled with the same model.
 - Speed uses `setpts` for video and chained `atempo` for audio.
+- Ducking is a volume envelope on the project timeline, applied after `adelay`
+  so the expression can address absolute time. The renderer computes the same
+  envelope, so preview and export agree.
 
 Because FFmpeg 9 removed `-filter_complex_script`, the graph is passed with
 `-/filter_complex <file>`. Writing it to a file avoids Windows command-line
@@ -131,7 +158,8 @@ gestures (drag, slider) record once on gesture start to keep history readable.
 
 ## Deferred design work
 
-Transitions, keyframes, effects, captions, and a plugin API need a richer render
-model. The intended direction is a compositor abstraction that can drive both the
-canvas preview and the FFmpeg graph from one description, instead of maintaining
-two independent renderers.
+Effects, transitions, keyframes, and captions are implemented in both renderers,
+but each feature is still described twice: once for the canvas/Web Audio preview
+and once for the FFmpeg graph. The intended direction is a compositor
+abstraction that can drive both from one description, instead of maintaining two
+independent renderers.

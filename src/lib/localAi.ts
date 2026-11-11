@@ -1,6 +1,7 @@
 import { env, pipeline, RawImage } from "@huggingface/transformers";
 import { invoke } from "@tauri-apps/api/core";
 import type { CaptionSegment, Transcription } from "./media";
+import { configureLocalModels, isStrictOffline, offlineModelFileUrl } from "./offlineModels";
 
 export interface ModelProgress {
   status: string;
@@ -25,10 +26,10 @@ function getPipeline(task: string, model: string, onProgress?: ProgressHandler, 
       modelName: string,
       options: Record<string, unknown>,
     ) => Promise<PipelineFn>;
-    instance = createPipeline(task, model, {
+    instance = configureLocalModels(env).then(() => createPipeline(task, model, {
       dtype,
       progress_callback: (info: ModelProgress) => onProgress?.(info),
-    });
+    }));
     loaded.set(key, instance);
     instance.catch(() => loaded.delete(key));
   }
@@ -60,7 +61,9 @@ export async function synthesizeLocally(text: string, model: string, voice: stri
   onProgress?.({ status: "inference", file: "Generating speech" });
   const options = usesSupertonic
     ? {
-        speaker_embeddings: `https://huggingface.co/${model}/resolve/main/voices/${encodeURIComponent(voice)}.bin`,
+        speaker_embeddings: isStrictOffline()
+          ? offlineModelFileUrl(model, `voices/${encodeURIComponent(voice)}.bin`)
+          : `https://huggingface.co/${model}/resolve/main/voices/${encodeURIComponent(voice)}.bin`,
         num_inference_steps: 5,
         speed: 1.0,
       }

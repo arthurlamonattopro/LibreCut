@@ -1,6 +1,7 @@
 pub mod export;
 pub mod ffmpeg;
 pub mod media;
+pub mod models;
 pub mod project;
 
 pub fn run() {
@@ -11,6 +12,9 @@ pub fn run() {
         .manage(export::ExportState::default())
         .register_uri_scheme_protocol("librecut", |ctx, request| {
             media::handle_protocol(ctx.app_handle(), &request)
+        })
+        .register_uri_scheme_protocol("librecutmodel", |ctx, request| {
+            models::handle_protocol(ctx.app_handle(), &request)
         })
         .invoke_handler(tauri::generate_handler![
             ffmpeg::runtime_status,
@@ -27,6 +31,8 @@ pub fn run() {
             project::save_project,
             project::load_project,
             project::has_nvenc,
+            models::offline_model_status,
+            models::ensure_models_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LibreCut");

@@ -25,6 +25,7 @@ import {
   revealFile,
 } from "../../lib/media";
 import { formatClock, formatDuration, projectDuration } from "../../lib/time";
+import { projectDuckingSegments } from "../../lib/audio";
 import type {
   ExportClipRequest,
   ExportEffectRequest,
@@ -101,8 +102,11 @@ function buildRequest(
   encoder: "libx264" | "nvenc",
 ): ExportRequest {
   const clips: ExportClipRequest[] = [];
+  const ducking = projectDuckingSegments(project);
   for (const track of project.tracks) {
     if (track.hidden || track.kind === "text") continue;
+    const trackVolume = track.volume ?? 1;
+    const duckSegments = ducking.get(track.id) ?? [];
     for (const clip of track.clips) {
       const asset = clip.assetId ? project.assets.find((item) => item.id === clip.assetId) : undefined;
       if (!asset) continue;
@@ -114,7 +118,8 @@ function buildRequest(
           duration: clip.duration,
           trimIn: clip.trimIn,
           speed: clip.speed,
-          volume: clip.volume,
+          speedRamp: clip.speedRamp ?? [],
+          volume: clip.volume * trackVolume,
           opacity: clip.opacity,
           hasAudio: asset.info.hasAudio && !track.muted,
           hasVideo: true,
@@ -131,6 +136,14 @@ function buildRequest(
           pitch: clip.pitch,
           bass: clip.bass,
           treble: clip.treble,
+          mid: clip.mid,
+          bassFrequency: clip.bassFrequency,
+          midFrequency: clip.midFrequency,
+          midWidth: clip.midWidth,
+          trebleFrequency: clip.trebleFrequency,
+          pan: clip.pan,
+          compressor: clip.compressor,
+          duckSegments,
           keyframes: clip.keyframes,
           transitionIn: clip.transitionIn,
           transitionOut: clip.transitionOut,
@@ -142,7 +155,8 @@ function buildRequest(
           duration: clip.duration,
           trimIn: clip.trimIn,
           speed: clip.speed,
-          volume: clip.volume,
+          speedRamp: clip.speedRamp ?? [],
+          volume: clip.volume * trackVolume,
           opacity: 1,
           hasAudio: true,
           hasVideo: false,
@@ -158,6 +172,14 @@ function buildRequest(
           pitch: clip.pitch,
           bass: clip.bass,
           treble: clip.treble,
+          mid: clip.mid,
+          bassFrequency: clip.bassFrequency,
+          midFrequency: clip.midFrequency,
+          midWidth: clip.midWidth,
+          trebleFrequency: clip.trebleFrequency,
+          pan: clip.pan,
+          compressor: clip.compressor,
+          duckSegments,
           keyframes: clip.keyframes,
           transitionIn: clip.transitionIn,
           transitionOut: clip.transitionOut,
@@ -190,13 +212,19 @@ function buildRequest(
           transitionOut: clip.transitionOut,
           color: clip.text!.color,
           fontWeight: clip.text!.fontWeight,
+          italic: clip.text!.italic,
+          fontFamily: clip.text!.fontFamily,
           align: clip.text!.align,
           underline: clip.text!.underline,
           characterSpacing: clip.text!.characterSpacing * scale,
+          lineHeight: clip.text!.lineHeight,
           outlineColor: clip.text!.outlineColor,
           outlineWidth: clip.text!.outlineWidth * scale,
+          backgroundColor: clip.text!.backgroundColor,
+          backgroundOpacity: clip.text!.backgroundOpacity,
           brightness: clip.text!.brightness,
           shadow: clip.text!.shadow,
+          shadowColor: clip.text!.shadowColor,
           curve: clip.text!.curve,
           opacity: clip.opacity,
         })),

@@ -26,8 +26,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob: http://librecut.localhost; media-src 'self' blob: http://librecut.localhost; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost http://librecut.localhost https: http://localhost:* http://127.0.0.1:*",
-      "devCsp": "default-src 'self'; img-src 'self' data: blob: http://librecut.localhost; media-src 'self' blob: http://librecut.localhost; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost http://librecut.localhost https: http://localhost:* http://127.0.0.1:* ws://localhost:1420 ws://localhost:1421 http://localhost:1420"
+      "csp": "default-src 'self'; img-src 'self' data: blob: http://librecut.localhost; media-src 'self' blob: http://librecut.localhost; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost http://librecut.localhost http://librecutmodel.localhost https: http://localhost:* http://127.0.0.1:*",
+      "devCsp": "default-src 'self'; img-src 'self' data: blob: http://librecut.localhost; media-src 'self' blob: http://librecut.localhost; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost http://librecut.localhost http://librecutmodel.localhost https: http://localhost:* http://127.0.0.1:* ws://localhost:1420 ws://localhost:1421 http://localhost:1420"
     }
   },
   "bundle": {

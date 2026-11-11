@@ -10,9 +10,49 @@ export interface Keyframe {
   value: number;
 }
 
+/** Track-level ducking: the track is attenuated while other audio plays. */
+export interface AudioDucking {
+  enabled: boolean;
+  /** Attenuation in decibels applied while the key signal is present. */
+  amount: number;
+  /** Key level in decibels that has to be reached before the track ducks. */
+  threshold: number;
+  /** Ramp-down time in seconds. */
+  attack: number;
+  /** Ramp-up time in seconds. */
+  release: number;
+}
+
+/** Clip-level dynamics processing. */
+export interface AudioCompressor {
+  enabled: boolean;
+  /** Threshold in decibels. */
+  threshold: number;
+  /** Compression ratio, 1 disables compression. */
+  ratio: number;
+  /** Attack time in milliseconds. */
+  attack: number;
+  /** Release time in milliseconds. */
+  release: number;
+}
+
+/** A linear gain ramp on the project timeline, used to express ducking. */
+export interface DuckSegment {
+  start: number;
+  end: number;
+  from: number;
+  to: number;
+}
+
 export interface ClipTransition {
   type: TransitionType;
   duration: number;
+}
+
+/** Speed at a point in clip-local timeline seconds. */
+export interface SpeedPoint {
+  time: number;
+  speed: number;
 }
 
 export interface ChromaKeyOptions {
@@ -70,13 +110,19 @@ export interface TextOptions {
   rotation: number;
   color: string;
   fontWeight: "normal" | "bold";
+  italic: boolean;
+  fontFamily: string;
   align: "left" | "center" | "right";
   underline: boolean;
   characterSpacing: number;
+  lineHeight: number;
   outlineColor: string;
   outlineWidth: number;
+  backgroundColor: string;
+  backgroundOpacity: number;
   brightness: number;
   shadow: number;
+  shadowColor: string;
   curve: number;
 }
 
@@ -106,6 +152,7 @@ export interface Clip {
   duration: number;
   trimIn: number;
   speed: number;
+  speedRamp?: SpeedPoint[];
   volume: number;
   opacity: number;
   fit: FitMode;
@@ -120,6 +167,19 @@ export interface Clip {
   pitch: number;
   bass: number;
   treble: number;
+  /** Mid band gain in decibels. */
+  mid: number;
+  /** Low shelf frequency in hertz. */
+  bassFrequency: number;
+  /** Mid band frequency in hertz. */
+  midFrequency: number;
+  /** Mid band width in octaves. */
+  midWidth: number;
+  /** High shelf frequency in hertz. */
+  trebleFrequency: number;
+  /** Stereo pan, -1 hard left to 1 hard right. */
+  pan: number;
+  compressor: AudioCompressor;
   effect?: ColorEffectOptions;
   keyframes: Keyframe[];
   transitionIn: ClipTransition;
@@ -134,6 +194,12 @@ export interface Track {
   muted: boolean;
   hidden: boolean;
   locked: boolean;
+  /** The main (magnetic) track keeps its clips packed with no gaps. */
+  magnetic?: boolean;
+  /** Track level in the mix. */
+  volume?: number;
+  /** Ducking applied when other audio plays over this track. */
+  ducking?: AudioDucking;
   clips: Clip[];
 }
 
@@ -168,6 +234,7 @@ export interface ExportClipRequest {
   duration: number;
   trimIn: number;
   speed: number;
+  speedRamp: SpeedPoint[];
   volume: number;
   opacity: number;
   hasAudio: boolean;
@@ -185,6 +252,14 @@ export interface ExportClipRequest {
   pitch: number;
   bass: number;
   treble: number;
+  mid: number;
+  bassFrequency: number;
+  midFrequency: number;
+  midWidth: number;
+  trebleFrequency: number;
+  pan: number;
+  compressor: AudioCompressor;
+  duckSegments: DuckSegment[];
   keyframes: Keyframe[];
   transitionIn: ClipTransition;
   transitionOut: ClipTransition;
@@ -199,13 +274,19 @@ export interface ExportTextRequest {
   size: number;
   color: string;
   fontWeight: "normal" | "bold";
+  italic: boolean;
+  fontFamily: string;
   align: "left" | "center" | "right";
   underline: boolean;
   characterSpacing: number;
+  lineHeight: number;
   outlineColor: string;
   outlineWidth: number;
+  backgroundColor: string;
+  backgroundOpacity: number;
   brightness: number;
   shadow: number;
+  shadowColor: string;
   curve: number;
   opacity: number;
   rotation: number;

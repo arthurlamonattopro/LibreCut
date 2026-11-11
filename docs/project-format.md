@@ -80,33 +80,65 @@ Notes:
 ```jsonc
 {
   "id": "uuid",
-  "kind": "video | audio | text",
+  "kind": "video | audio | text | misc",
   "name": "Video 1",
   "muted": false,
   "hidden": false,
   "locked": false,
+  "magnetic": false,
+  "volume": 1.0,
+  "ducking": {
+    "enabled": false,
+    "amount": 12.0,
+    "threshold": -30.0,
+    "attack": 0.25,
+    "release": 0.6
+  },
   "clips": []
 }
 ```
 
 Tracks are rendered in array order. `hidden` hides video/text; `muted` silences
-audio; `locked` blocks edits to clips on that track.
+audio; `locked` blocks edits to clips on that track. `magnetic` marks the main
+track, whose clips stay packed with no gaps.
+
+`volume` is the track level in the mix. `ducking` attenuates the whole track
+while other, non-ducking tracks play audio above `threshold` decibels: the
+envelope ramps down over `attack` seconds and recovers over `release` seconds.
+The same envelope is used by the preview and the export.
 
 ## Clip
 
 ```jsonc
 {
   "id": "uuid",
-  "kind": "video | audio | text",
+  "kind": "video | audio | text | misc",
   "name": "clip.mp4",
   "assetId": "uuid or omitted for text",
   "start": 4.0,
   "duration": 6.0,
   "trimIn": 2.0,
   "speed": 1.0,
+  "speedRamp": [{ "time": 0.0, "speed": 0.5 }, { "time": 6.0, "speed": 2.0 }],
   "volume": 1.0,
   "opacity": 1.0,
   "fit": "contain | cover",
+  "bass": 0.0,
+  "bassFrequency": 180.0,
+  "mid": 0.0,
+  "midFrequency": 1000.0,
+  "midWidth": 1.0,
+  "treble": 0.0,
+  "trebleFrequency": 4000.0,
+  "pan": 0.0,
+  "compressor": {
+    "enabled": false,
+    "threshold": -18.0,
+    "ratio": 4.0,
+    "attack": 12.0,
+    "release": 180.0
+  },
+  "keyframes": [{ "property": "volume", "time": 0.0, "value": 0.0 }],
   "text": {
     "text": "Your text",
     "x": 0.5,
@@ -125,9 +157,16 @@ audio; `locked` blocks edits to clips on that track.
 | `duration` | Timeline length in seconds (after speed) |
 | `trimIn` | Source offset in seconds |
 | `speed` | Playback rate, 0.25–4.0 |
+| `speedRamp` | Optional speed points in clip-local seconds; overrides `speed` |
 | `volume` | Linear gain, 0 is silent |
 | `opacity` | 0–1, video/image only |
 | `fit` | `contain` letterboxes, `cover` crops |
+| `bass`, `mid`, `treble` | Equalizer band gains in decibels |
+| `bassFrequency`, `midFrequency`, `trebleFrequency` | Band centres in hertz |
+| `midWidth` | Mid band width in octaves |
+| `pan` | -1 hard left to 1 hard right |
+| `compressor` | Dynamics settings; `threshold` in dB, `attack`/`release` in ms |
+| `keyframes` | Animated properties (`volume`, `opacity`, transforms) |
 | `text` | Present for text clips only; `x`/`y` are 0–1 canvas fractions |
 
 Source length consumed for a clip is `duration * speed` (except images, which

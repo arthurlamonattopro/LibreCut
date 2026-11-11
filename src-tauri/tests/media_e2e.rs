@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use librecut_lib::export::{
-    build_graph, render_with_progress, ExportClip, ExportEffect, ExportRequest, ExportText,
-    ExportTransition,
+    build_graph, render_with_progress, ExportClip, ExportCompressor, ExportDuckSegment, ExportEffect,
+    ExportRequest, ExportSpeedPoint, ExportText, ExportTransition,
 };
 use librecut_lib::ffmpeg;
 use librecut_lib::media;
@@ -128,6 +128,7 @@ fn video_clip(path: &Path) -> ExportClip {
         duration: 2.0,
         trim_in: 0.0,
         speed: 1.0,
+        speed_ramp: Vec::new(),
         volume: 1.0,
         opacity: 1.0,
         has_audio: true,
@@ -145,6 +146,14 @@ fn video_clip(path: &Path) -> ExportClip {
         pitch: 0.0,
         bass: 0.0,
         treble: 0.0,
+        mid: 0.0,
+        bass_frequency: 180.0,
+        mid_frequency: 1000.0,
+        mid_width: 1.0,
+        treble_frequency: 4000.0,
+        pan: 0.0,
+        compressor: None,
+        duck_segments: Vec::new(),
         keyframes: Vec::new(),
         transition_in: ExportTransition::default(),
         transition_out: ExportTransition::default(),
@@ -161,13 +170,19 @@ fn text_overlay() -> ExportText {
         size: 28.0,
         color: "#ffffff".to_string(),
         font_weight: Some("bold".to_string()),
+        italic: false,
+        font_family: Some("Segoe UI".to_string()),
         align: Some("center".to_string()),
         underline: false,
         character_spacing: 0.0,
+        line_height: 1.2,
         outline_color: Some("#000000".to_string()),
         outline_width: 1.0,
+        background_color: Some("#000000".to_string()),
+        background_opacity: 0.0,
         brightness: 1.0,
         shadow: 0.4,
+        shadow_color: Some("#000000".to_string()),
         curve: 0.0,
         rotation: 0.0,
         opacity: 1.0,
@@ -405,4 +420,133 @@ fn graph_builder_composes_video_text_effects_and_audio() {
     assert!(graph.contains("[vout]"));
     assert!(graph.contains("[aout]"));
     assert!(graph.contains("geq=r='r(X,Y)'"));
+}
+
+#[test]
+fn graph_builder_expresses_speed_ramps() {
+    let mut clip = video_clip(Path::new("source.mp4"));
+    clip.duration = 4.0;
+    clip.speed_ramp = vec![
+        ExportSpeedPoint {
+            time: 0.0,
+            speed: 0.5,
+        },
+        ExportSpeedPoint {
+            time: 4.0,
+            speed: 2.0,
+        },
+    ];
+    let request = request(Path::new("out.mp4"), vec![clip], 4.0);
+    let graph = build_graph(&request);
+    assert!(graph.contains("setpts=(if(lt((T-STARTT),"));
+    assert!(graph.contains("asplit="));
+    assert!(graph.contains("concat=n="));
+    assert!(graph.contains("atempo="));
+}
+
+#[test]
+fn graph_builder_expresses_eq_pan_compression_and_ducking() {
+    let mut clip = video_clip(Path::new("source.mp4"));
+    clip.bass = 3.0;
+    clip.bass_frequency = 220.0;
+    clip.mid = -4.0;
+    clip.mid_frequency = 1500.0;
+    clip.mid_width = 1.5;
+    clip.treble = 2.0;
+    clip.treble_frequency = 6000.0;
+    clip.pan = -0.5;
+    clip.compressor = Some(ExportCompressor {
+        enabled: true,
+        threshold: -18.0,
+        ratio: 4.0,
+        attack: 12.0,
+        release: 180.0,
+    });
+    clip.duck_segments = vec![
+        ExportDuckSegment {
+            start: 0.0,
+            end: 0.25,
+            from: 1.0,
+            to: 0.5,
+        },
+        ExportDuckSegment {
+            start: 0.25,
+            end: 1.75,
+            from: 0.5,
+            to: 0.5,
+        },
+        ExportDuckSegment {
+            start: 1.75,
+            end: 2.0,
+            from: 0.5,
+            to: 1.0,
+        },
+    ];
+
+    let request = request(Path::new("out.mp4"), vec![clip], 2.0);
+    let graph = build_graph(&request);
+    assert!(graph.contains("bass=g=3.00:f=220.0"));
+    assert!(graph.contains("equalizer=f=1500.0:t=o:w=1.500:g=-4.00"));
+    assert!(graph.contains("treble=g=2.00:f=6000.0"));
+    assert!(graph.contains("pan=stereo|"));
+    assert!(graph.contains("acompressor=threshold="));
+    assert!(graph.contains("eval=frame"));
+}
+
+#[tokio::test]
+async fn export_renders_processed_audio() {
+    if skip_without_ffmpeg().await {
+        return;
+    }
+    let temp = TempDir::new("audio");
+    let source = make_video(temp.path()).await;
+    let output = temp.path().join("processed.mp4");
+
+    let mut clip = video_clip(&source);
+    clip.bass = 4.0;
+    clip.mid = -3.0;
+    clip.treble = 2.0;
+    clip.pan = -0.5;
+    clip.compressor = Some(ExportCompressor {
+        enabled: true,
+        threshold: -18.0,
+        ratio: 4.0,
+        attack: 12.0,
+        release: 180.0,
+    });
+    clip.duck_segments = vec![
+        ExportDuckSegment {
+            start: 0.0,
+            end: 0.25,
+            from: 1.0,
+            to: 0.5,
+        },
+        ExportDuckSegment {
+            start: 0.25,
+            end: 1.75,
+            from: 0.5,
+            to: 0.5,
+        },
+        ExportDuckSegment {
+            start: 1.75,
+            end: 2.0,
+            from: 0.5,
+            to: 1.0,
+        },
+    ];
+
+    let request = request(&output, vec![clip], 2.0);
+    let cancel = AtomicBool::new(false);
+    render_with_progress(&request, temp.path(), &cancel, &|_progress| {})
+        .await
+        .expect("export processed audio");
+
+    let info = media::probe(&output).await.expect("probe processed video");
+    assert!(info.has_video);
+    assert!(info.has_audio);
+    assert!(
+        (info.duration - 2.0).abs() < 0.35,
+        "duration {}",
+        info.duration
+    );
 }

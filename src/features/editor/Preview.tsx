@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  LayoutGrid,
   Maximize2,
   Pause,
   Play,
@@ -11,7 +12,9 @@ import { assetForClip, useEditor } from "../../stores/editor";
 import { mediaUrl } from "../../lib/media";
 import { formatClock, projectDuration } from "../../lib/time";
 import { clipValue, transitionState } from "../../lib/animation";
-import type { ChromaKeyOptions } from "../../lib/types";
+import { sourceOffsetAt, speedAt } from "../../lib/speed";
+import { duckGainAt, midFilterQ, projectDuckingSegments } from "../../lib/audio";
+import type { ChromaKeyOptions, DuckSegment, Project } from "../../lib/types";
 
 type PoolEntry = {
   kind: "video" | "audio" | "image";
@@ -19,12 +22,22 @@ type PoolEntry = {
   mediaId: string;
   source?: MediaElementAudioSourceNode;
   bass?: BiquadFilterNode;
+  mid?: BiquadFilterNode;
   treble?: BiquadFilterNode;
+  panner?: StereoPannerNode;
+  compressor?: DynamicsCompressorNode;
   gain?: GainNode;
 };
 
 type Clock = { last: number; lastUi: number };
 type MotionHistory = { frames: HTMLCanvasElement[]; lastTime: number };
+
+function colorWithAlpha(color: string, alpha: number): string {
+  const match = /^#([0-9a-f]{6})$/i.exec(color);
+  if (!match) return color;
+  const value = Number.parseInt(match[1], 16);
+  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+}
 
 function drawFitted(
   ctx: CanvasRenderingContext2D,
@@ -86,6 +99,8 @@ export function Preview() {
   const setPlaying = useEditor((state) => state.setPlaying);
   const setCurrentTime = useEditor((state) => state.setCurrentTime);
 
+  const [showGuides, setShowGuides] = useState(false);
+  const guidesRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const effectCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const motionHistoryRef = useRef<Map<string, MotionHistory>>(new Map());
@@ -94,6 +109,7 @@ export function Preview() {
   const hiddenRef = useRef<HTMLDivElement>(null);
   const poolRef = useRef<Map<string, PoolEntry>>(new Map());
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const duckRef = useRef<{ project: Project | null; segments: Map<string, DuckSegment[]> }>({ project: null, segments: new Map() });
   const rafRef = useRef(0);
   const drawRafRef = useRef(0);
   const retryDrawRef = useRef<number | null>(null);
@@ -192,18 +208,30 @@ export function Preview() {
         const bass = ctx.createBiquadFilter();
         bass.type = "lowshelf";
         bass.frequency.value = 180;
+        const mid = ctx.createBiquadFilter();
+        mid.type = "peaking";
+        mid.frequency.value = 1000;
+        mid.Q.value = 3;
         const treble = ctx.createBiquadFilter();
         treble.type = "highshelf";
         treble.frequency.value = 4000;
+        const panner = typeof ctx.createStereoPanner === "function" ? ctx.createStereoPanner() : undefined;
+        const compressor = ctx.createDynamicsCompressor();
         const gain = ctx.createGain();
         gain.gain.value = 0;
         source.connect(bass);
-        bass.connect(treble);
-        treble.connect(gain);
+        bass.connect(mid);
+        mid.connect(treble);
+        treble.connect(panner ?? compressor);
+        if (panner) panner.connect(compressor);
+        compressor.connect(gain);
         gain.connect(ctx.destination);
         entry.source = source;
         entry.bass = bass;
+        entry.mid = mid;
         entry.treble = treble;
+        entry.panner = panner;
+        entry.compressor = compressor;
         entry.gain = gain;
       } catch {
         // Some media elements cannot be routed through Web Audio.
@@ -224,9 +252,11 @@ export function Preview() {
         const entry = poolRef.current.get(clip.id);
         if (!entry || entry.kind === "image") continue;
         const media = entry.el as HTMLMediaElement;
-        const audioRate = Math.min(8, Math.max(0.0625, clip.speed * Math.pow(2, clip.pitch / 12)));
+        const localTime = time - clip.start;
+        const rampSpeed = clip.speedRamp?.length ? speedAt(clip.speedRamp, clip.duration, localTime) : clip.speed;
+        const audioRate = Math.min(8, Math.max(0.0625, rampSpeed * Math.pow(2, clip.pitch / 12)));
         media.preservesPitch = clip.pitch === 0;
-        const target = Math.max(0, clip.trimIn + (time - clip.start) * audioRate);
+        const target = Math.max(0, clip.trimIn + (clip.speedRamp?.length ? sourceOffsetAt(clip.speedRamp, clip.duration, localTime) : localTime * audioRate));
         const tolerance = isPlaying ? 0.22 : 0.015;
         if (Math.abs(media.currentTime - target) > tolerance) {
           try {
@@ -253,9 +283,11 @@ export function Preview() {
         const entry = poolRef.current.get(clip.id);
         if (!entry || entry.kind === "image") continue;
         const media = entry.el as HTMLMediaElement;
-        const audioRate = Math.min(8, Math.max(0.0625, clip.speed * Math.pow(2, clip.pitch / 12)));
+        const localTime = time - clip.start;
+        const rampSpeed = clip.speedRamp?.length ? speedAt(clip.speedRamp, clip.duration, localTime) : clip.speed;
+        const audioRate = Math.min(8, Math.max(0.0625, rampSpeed * Math.pow(2, clip.pitch / 12)));
         media.preservesPitch = clip.pitch === 0;
-        const target = Math.max(0, clip.trimIn + (time - clip.start) * audioRate);
+        const target = Math.max(0, clip.trimIn + (clip.speedRamp?.length ? sourceOffsetAt(clip.speedRamp, clip.duration, localTime) : localTime * audioRate));
         if (Math.abs(media.currentTime - target) > (isPlaying ? 0.22 : 0.015)) {
           try {
             media.currentTime = target;
@@ -282,8 +314,14 @@ export function Preview() {
   const applyGains = (time: number) => {
     const activeProject = projectRef.current;
     if (!activeProject) return;
+    if (duckRef.current.project !== activeProject) {
+      duckRef.current = { project: activeProject, segments: projectDuckingSegments(activeProject) };
+    }
+    const duckSegments = duckRef.current.segments;
     for (const track of activeProject.tracks) {
       if (track.kind === "text") continue;
+      const trackVolume = track.volume ?? 1;
+      const ducking = duckSegments.get(track.id);
       for (const clip of track.clips) {
         const entry = poolRef.current.get(clip.id);
         if (!entry?.gain) continue;
@@ -293,9 +331,33 @@ export function Preview() {
         const fadeOut = clip.fadeOut > 0 ? Math.min(1, (clip.duration - local) / clip.fadeOut) : 1;
         const transitions = transitionState(clip, time, false);
         const volume = clipValue(clip, "volume", local);
-        const target = isActive ? Math.min(4, Math.max(0, volume)) * Math.min(fadeIn, fadeOut) * transitions.alpha * (track.muted ? 0 : 1) : 0;
-        if (entry.bass) entry.bass.gain.value = clip.bass;
-        if (entry.treble) entry.treble.gain.value = clip.treble;
+        const duck = ducking ? duckGainAt(ducking, time) : 1;
+        const target = isActive
+          ? Math.min(4, Math.max(0, volume)) * Math.min(fadeIn, fadeOut) * transitions.alpha * trackVolume * duck * (track.muted ? 0 : 1)
+          : 0;
+        if (entry.bass) {
+          entry.bass.gain.value = clip.bass;
+          entry.bass.frequency.value = clip.bassFrequency ?? 180;
+        }
+        if (entry.mid) {
+          entry.mid.gain.value = clip.mid ?? 0;
+          entry.mid.frequency.value = clip.midFrequency ?? 1000;
+          entry.mid.Q.value = midFilterQ(clip.midWidth ?? 1);
+        }
+        if (entry.treble) {
+          entry.treble.gain.value = clip.treble;
+          entry.treble.frequency.value = clip.trebleFrequency ?? 4000;
+        }
+        if (entry.panner) {
+          entry.panner.pan.value = Math.max(-1, Math.min(1, clip.pan));
+        }
+        if (entry.compressor) {
+          const compressor = clip.compressor;
+          entry.compressor.threshold.value = compressor?.enabled ? compressor.threshold : 0;
+          entry.compressor.ratio.value = compressor?.enabled ? Math.max(1, compressor.ratio) : 1;
+          entry.compressor.attack.value = Math.max(0, (compressor?.attack ?? 20) / 1000);
+          entry.compressor.release.value = Math.max(0, (compressor?.release ?? 250) / 1000);
+        }
         entry.gain.gain.value = target;
       }
     }
@@ -495,26 +557,31 @@ export function Preview() {
         const brightColor = /^#[0-9a-f]{6}$/i.test(text.color)
           ? `#${[1, 3, 5].map((at) => Math.min(255, Math.round(parseInt(text.color.slice(at, at + 2), 16) * brightness)).toString(16).padStart(2, "0")).join("")}`
           : text.color;
+        const lines = text.text.split("\n");
+        const lineHeight = text.size * Math.max(0.8, text.lineHeight);
         ctx.fillStyle = brightColor;
         ctx.strokeStyle = text.outlineColor;
         ctx.lineWidth = text.outlineWidth * 2;
         ctx.lineJoin = "round";
-        ctx.font = `${text.fontWeight} ${text.size}px "Segoe UI Variable Display", "Segoe UI", sans-serif`;
+        ctx.font = `${text.italic ? "italic " : ""}${text.fontWeight} ${text.size}px "${text.fontFamily}", "Segoe UI", sans-serif`;
         ctx.textAlign = text.align;
         ctx.textBaseline = "middle";
         ctx.letterSpacing = `${text.characterSpacing}px`;
-        ctx.shadowColor = `rgba(0,0,0,${Math.max(0, Math.min(1, text.shadow))})`;
-        ctx.shadowBlur = Math.max(0, text.size * 0.1 * text.shadow);
-        ctx.shadowOffsetY = Math.max(0, text.size * 0.04 * text.shadow);
-        if (Math.abs(text.curve) < 1) {
-          if (text.outlineWidth > 0) ctx.strokeText(text.text, 0, 0);
-          ctx.fillText(text.text, 0, 0);
-          if (text.underline) {
-            const width = ctx.measureText(text.text).width;
-            const left = text.align === "left" ? 0 : text.align === "right" ? -width : -width / 2;
-            ctx.fillRect(left, text.size * 0.55, width, Math.max(1, text.size * 0.045));
-          }
-        } else {
+        ctx.shadowColor = colorWithAlpha(text.shadowColor, Math.max(0, Math.min(1, text.shadow)));
+        ctx.shadowBlur = Math.max(0, text.size * 0.14 * text.shadow);
+        ctx.shadowOffsetY = Math.max(0, text.size * 0.05 * text.shadow);
+        if (text.backgroundOpacity > 0) {
+          const maxWidth = Math.max(1, ...lines.map((line) => ctx.measureText(line).width));
+          const padding = text.size * 0.2;
+          const left = text.align === "left" ? -padding : text.align === "right" ? -maxWidth - padding : -maxWidth / 2 - padding;
+          ctx.save();
+          ctx.shadowColor = "transparent";
+          ctx.globalAlpha *= Math.max(0, Math.min(1, text.backgroundOpacity));
+          ctx.fillStyle = text.backgroundColor;
+          ctx.fillRect(left, -(lines.length * lineHeight) / 2 - padding, maxWidth + padding * 2, lines.length * lineHeight + padding * 2);
+          ctx.restore();
+        }
+        if (lines.length === 1 && Math.abs(text.curve) >= 1) {
           const chars = Array.from(text.text);
           const widths = chars.map((char) => ctx.measureText(char).width + text.characterSpacing);
           const glyphWidth = widths.reduce((sum, width) => sum + width, 0);
@@ -538,9 +605,61 @@ export function Preview() {
             ctx.restore();
             cursor += advance;
           });
+        } else {
+          lines.forEach((line, index) => {
+            const lineY = (index - (lines.length - 1) / 2) * lineHeight;
+            if (text.outlineWidth > 0) ctx.strokeText(line, 0, lineY);
+            ctx.fillText(line, 0, lineY);
+            if (text.underline) {
+              const width = ctx.measureText(line).width;
+              const left = text.align === "left" ? 0 : text.align === "right" ? -width : -width / 2;
+              ctx.fillRect(left, lineY + text.size * 0.55, width, Math.max(1, text.size * 0.045));
+            }
+          });
         }
         ctx.restore();
       }
+    }
+
+    if (guidesRef.current) {
+      const projectWidth = activeProject.width;
+      const projectHeight = activeProject.height;
+      const line = Math.max(1, 1.5 / Math.max(0.0001, scale));
+      ctx.save();
+      ctx.lineWidth = line;
+      ctx.setLineDash([line * 5, line * 4]);
+      ctx.strokeStyle = "rgba(255,255,255,0.5)";
+      ctx.strokeRect(projectWidth * 0.05, projectHeight * 0.05, projectWidth * 0.9, projectHeight * 0.9);
+      ctx.strokeStyle = "rgba(84,214,222,0.55)";
+      ctx.strokeRect(projectWidth * 0.1, projectHeight * 0.1, projectWidth * 0.8, projectHeight * 0.8);
+      ctx.setLineDash([]);
+      ctx.strokeStyle = "rgba(255,255,255,0.18)";
+      ctx.lineWidth = line;
+      for (const fraction of [1 / 3, 2 / 3]) {
+        ctx.beginPath();
+        ctx.moveTo(projectWidth * fraction, 0);
+        ctx.lineTo(projectWidth * fraction, projectHeight);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, projectHeight * fraction);
+        ctx.lineTo(projectWidth, projectHeight * fraction);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.moveTo(projectWidth / 2 - projectWidth * 0.025, projectHeight / 2);
+      ctx.lineTo(projectWidth / 2 + projectWidth * 0.025, projectHeight / 2);
+      ctx.moveTo(projectWidth / 2, projectHeight / 2 - projectHeight * 0.025);
+      ctx.lineTo(projectWidth / 2, projectHeight / 2 + projectHeight * 0.025);
+      ctx.strokeStyle = "rgba(255,255,255,0.45)";
+      ctx.stroke();
+      ctx.font = `${Math.max(10, Math.round(projectWidth * 0.011))}px "Segoe UI", sans-serif`;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillStyle = "rgba(255,255,255,0.55)";
+      ctx.fillText("ACTION SAFE", projectWidth * 0.05 + line * 6, projectHeight * 0.05 + line * 5);
+      ctx.fillStyle = "rgba(84,214,222,0.75)";
+      ctx.fillText("TITLE SAFE", projectWidth * 0.1 + line * 6, projectHeight * 0.1 + line * 5);
+      ctx.restore();
     }
   };
 
@@ -551,6 +670,12 @@ export function Preview() {
       drawFrame(timeRef.current);
     });
   };
+
+  useEffect(() => {
+    guidesRef.current = showGuides;
+    scheduleDraw();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showGuides]);
 
   const startLoop = () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -710,6 +835,14 @@ export function Preview() {
           <span>{project?.fps ?? 30} fps</span>
         </div>
         <div className="flex items-center gap-1">
+          <button
+            className={`btn btn-ghost btn-icon btn-sm ${showGuides ? "text-accent" : ""}`}
+            onClick={() => setShowGuides((value) => !value)}
+            title="Toggle title and action safe-area guides"
+            aria-pressed={showGuides}
+          >
+            <LayoutGrid size={13} />
+          </button>
           <button className="btn btn-ghost btn-icon btn-sm" onClick={fullscreen} title="Fullscreen preview">
             <Maximize2 size={13} />
           </button>

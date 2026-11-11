@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
-import { AudioLines, Captions, Download, Image, Loader2, Sparkles, Wifi } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AudioLines, Captions, FolderOpen, HardDrive, Image, Loader2, RefreshCw, Sparkles, Wifi } from "lucide-react";
 import { Modal } from "../../components/Modal";
 import { toast } from "../../components/Toast";
-import { generateThumbnails, generateWaveform, readMediaForAi, registerMedia, synthesizeSpeech, transcribeAudio } from "../../lib/media";
+import { generateThumbnails, generateWaveform, openFolder, readMediaForAi, registerMedia, synthesizeSpeech, transcribeAudio } from "../../lib/media";
 import { removeImageBackground, saveLocalImage, synthesizeLocally, transcribeLocally, type ModelProgress } from "../../lib/localAi";
+import { ensureModelsFolder, getOfflineModelStatus, isStrictOffline, setStrictOffline, type OfflineModelStatus } from "../../lib/offlineModels";
 import { useEditor } from "../../stores/editor";
 import type { Asset } from "../../lib/types";
 
@@ -69,7 +70,48 @@ export function AiStudio({ open, onClose }: { open: boolean; onClose: () => void
   const [cloudVoice, setCloudVoice] = useState("alloy");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<ModelProgress | null>(null);
+  const [offlineStatus, setOfflineStatus] = useState<OfflineModelStatus | null>(null);
+  const [strictOffline, setStrictOfflineState] = useState(() => isStrictOffline());
+  const [checkingModels, setCheckingModels] = useState(false);
   const addAsset = useEditor((state) => state.addAsset);
+
+  const refreshOfflineModels = async () => {
+    setCheckingModels(true);
+    try {
+      setOfflineStatus(await getOfflineModelStatus());
+    } catch {
+      setOfflineStatus(null);
+    } finally {
+      setCheckingModels(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setCheckingModels(true);
+    getOfflineModelStatus()
+      .then((status) => { if (!cancelled) setOfflineStatus(status); })
+      .catch(() => { if (!cancelled) setOfflineStatus(null); })
+      .finally(() => { if (!cancelled) setCheckingModels(false); });
+    return () => { cancelled = true; };
+  }, [open]);
+
+  const toggleStrictOffline = async (next: boolean) => {
+    await setStrictOffline(next);
+    setStrictOfflineState(next);
+    toast(next ? "Strict offline mode enabled. Missing models will not be downloaded." : "Strict offline mode disabled. Missing models can download on first use.", "success");
+  };
+
+  const openModelsFolder = async () => {
+    try {
+      const path = await ensureModelsFolder();
+      await openFolder(path);
+      await refreshOfflineModels();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), "error");
+    }
+  };
   const activeCaptionSource = captionSource === "timeline" && timelineVideo ? "timeline" : "asset";
   const activeAsrModel = asrModelChoice === "custom" ? customAsrModel.trim() : asrModelChoice;
   const changeLanguage = (value: string) => {
@@ -195,8 +237,26 @@ export function AiStudio({ open, onClose }: { open: boolean; onClose: () => void
           {([ ["captions", Captions, "Captions"], ["speech", AudioLines, "Text to speech"], ["background", Image, "Background remover"] ] as const).map(([id, Icon, title]) => <button key={id} role="tab" aria-selected={localTool === id} className={`btn btn-sm ${localTool === id ? "btn-secondary" : "btn-ghost"}`} onClick={() => setLocalTool(id)}><Icon size={13} />{title}</button>)}
         </div>
         <div className="rounded-lg border border-line-soft bg-surface-2/35 p-3 text-[10px] leading-relaxed text-muted">
-          <div className="flex items-center gap-2 font-medium text-ink"><Download size={13} className="text-accent" /> One-click model setup</div>
-          <p className="mt-1.5">First use downloads the selected Hugging Face model with progress, then keeps it in this app’s local cache for later offline use. Your media stays on this device.</p>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 font-medium text-ink"><HardDrive size={13} className="text-accent" /> Offline model bundles</div>
+            <button className="btn btn-sm btn-ghost" onClick={() => void refreshOfflineModels()} disabled={checkingModels} title="Rescan the local model folder">{checkingModels ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Refresh</button>
+          </div>
+          <p className="mt-1.5">
+            {offlineStatus
+              ? offlineStatus.available
+                ? `${offlineStatus.models.length} model${offlineStatus.models.length === 1 ? "" : "s"} installed. Local copies load without a download.`
+                : "No models installed yet. Models download on first use, or you can copy model folders into the models directory."
+              : "Could not read the local model folder. Models still download and cache on first use."}
+          </p>
+          {offlineStatus?.models.length ? <p className="mt-1 truncate font-mono text-[9px] text-dim" title={offlineStatus.models.join("\n")}>{offlineStatus.models.slice(0, 3).join(" · ")}{offlineStatus.models.length > 3 ? ` · +${offlineStatus.models.length - 3} more` : ""}</p> : null}
+          <p className="mt-1 break-all font-mono text-[9px] text-dim">{offlineStatus?.root ?? ""}</p>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <button className="btn btn-sm btn-secondary" onClick={() => void openModelsFolder()}><FolderOpen size={12} /> Open models folder</button>
+            <label className="flex cursor-pointer items-center gap-1.5 text-[10px] text-muted" title="Refuse to download models that are missing from the local folder">
+              <input type="checkbox" checked={strictOffline} onChange={(event) => void toggleStrictOffline(event.target.checked)} /> Strict offline
+            </label>
+          </div>
+          {strictOffline && offlineStatus && !offlineStatus.available ? <p className="mt-1.5 text-error">Strict offline is on, but no bundled models were found. Add models before using a local tool.</p> : null}
         </div>
 
         {localTool === "captions" ? <div className="space-y-3">

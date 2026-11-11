@@ -21,8 +21,10 @@ import {
   useEditor,
   type ClipPatch,
 } from "../../stores/editor";
-import { formatClock, formatDuration, projectDuration } from "../../lib/time";
-import type { Clip, KeyframeProperty, TransitionType } from "../../lib/types";
+import { clamp, formatClock, formatDuration, projectDuration } from "../../lib/time";
+import { MAX_SPEED, MIN_SPEED, normalizeSpeedRamp, speedAt } from "../../lib/speed";
+import type { Clip, KeyframeProperty, SpeedPoint, Track, TransitionType } from "../../lib/types";
+import { DEFAULT_COMPRESSOR, DEFAULT_DUCKING } from "../../lib/audio";
 
 function sectionTitle(title: string) {
   return <div className="mb-3 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-dim">{title}</div>;
@@ -125,11 +127,119 @@ function RangeNumber({ label, value, min, max, step, suffix, displayScale = 1, o
   </div>;
 }
 
+function SpeedRampEditor({
+  clip,
+  playhead,
+  onUpdate,
+  onRecord,
+}: {
+  clip: Clip;
+  playhead: number;
+  onUpdate: (patch: ClipPatch, record?: boolean) => void;
+  onRecord: () => void;
+}) {
+  const ramp = normalizeSpeedRamp(clip.speedRamp, clip.duration);
+  const active = Boolean(clip.speedRamp?.length) && ramp.length >= 2;
+  const local = clamp(playhead - clip.start, 0, clip.duration);
+  const apply = (points: SpeedPoint[], record = true) => {
+    if (record) onRecord();
+    onUpdate({ speedRamp: normalizeSpeedRamp(points, clip.duration) }, false);
+  };
+  const presets: Array<[string, SpeedPoint[]]> = [
+    ["Ramp up", [{ time: 0, speed: 0.5 }, { time: clip.duration, speed: 2 }]],
+    ["Ramp down", [{ time: 0, speed: 2 }, { time: clip.duration, speed: 0.5 }]],
+    ["Bullet time", [{ time: 0, speed: 1 }, { time: clip.duration / 2, speed: 0.3 }, { time: clip.duration, speed: 1 }]],
+    ["Whip", [{ time: 0, speed: 0.6 }, { time: clip.duration / 2, speed: 3 }, { time: clip.duration, speed: 1 }]],
+  ];
+
+  return (
+    <div className="space-y-2 rounded-lg border border-line-soft bg-surface-2/35 p-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-dim">Speed ramp</span>
+        {active ? (
+          <button className="text-[10px] text-dim transition hover:text-ink" onClick={() => apply([])}>
+            Clear
+          </button>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {presets.map(([label, points]) => (
+          <button key={label} className="btn btn-ghost btn-sm px-2 text-[10px]" onClick={() => apply(points)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {active ? (
+        <div className="space-y-1">
+          {ramp.map((point, index) => {
+            const edge = index === 0 || index === ramp.length - 1;
+            return (
+              <div key={`${index}-${point.time}`} className="flex items-center gap-1.5">
+                <span className="w-8 shrink-0 text-[9.5px] text-dim">{edge ? (index === 0 ? "Start" : "End") : "Key"}</span>
+                <input
+                  aria-label="Ramp point time"
+                  className="field h-7 min-w-0 flex-1 px-1.5 text-right font-mono text-[10px]"
+                  type="number"
+                  min={0}
+                  max={clip.duration}
+                  step={0.05}
+                  value={Number(point.time.toFixed(2))}
+                  disabled={edge}
+                  onFocus={onRecord}
+                  onChange={(event) => {
+                    const time = clamp(Number(event.target.value), 0, clip.duration);
+                    const points = ramp.map((item, itemIndex) => (itemIndex === index ? { ...item, time } : item));
+                    apply(points, false);
+                  }}
+                />
+                <span className="text-[9px] text-dim">s</span>
+                <input
+                  aria-label="Ramp point speed"
+                  className="field h-7 w-16 px-1.5 text-right font-mono text-[10px]"
+                  type="number"
+                  min={MIN_SPEED}
+                  max={MAX_SPEED}
+                  step={0.05}
+                  value={Number(point.speed.toFixed(2))}
+                  onFocus={onRecord}
+                  onChange={(event) => {
+                    const speed = clamp(Number(event.target.value), MIN_SPEED, MAX_SPEED);
+                    const points = ramp.map((item, itemIndex) => (itemIndex === index ? { ...item, speed } : item));
+                    apply(points, false);
+                  }}
+                />
+                <span className="w-7 text-[9px] text-dim">×</span>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="text-[10px] leading-relaxed text-dim">Pick a preset or add a point at the playhead to ease the clip from one speed to another.</p>
+      )}
+      <button
+        className="btn btn-secondary btn-sm w-full"
+        onClick={() => {
+          const base = active ? ramp : [
+            { time: 0, speed: clip.speed },
+            { time: clip.duration, speed: clip.speed },
+          ];
+          const points = base.filter((point) => Math.abs(point.time - local) > 0.02);
+          points.push({ time: local, speed: speedAt(base, clip.duration, local) });
+          apply(points);
+        }}
+      >
+        Add point at playhead
+      </button>
+    </div>
+  );
+}
+
 export function Inspector({ width = 280 }: { width?: number }) {
   const project = useEditor((state) => state.project);
   const clip = useEditor(selectedClip);
   const track = useEditor(selectedTrackOfClip);
   const updateClip = useEditor((state) => state.updateClip);
+  const updateTrack = useEditor((state) => state.updateTrack);
   const recordSnapshot = useEditor((state) => state.recordSnapshot);
   const duplicateClip = useEditor((state) => state.duplicateClip);
   const deleteSelected = useEditor((state) => state.deleteSelected);
@@ -151,8 +261,10 @@ export function Inspector({ width = 280 }: { width?: number }) {
         {clip && track ? (
           <ClipInspector
             clip={clip}
+            track={track}
             trackName={track.name}
             onUpdate={(patch, record) => updateClip(clip.id, patch, record)}
+            onUpdateTrack={(patch, record) => updateTrack(track.id, patch, record)}
             onRecord={recordSnapshot}
             onDuplicate={() => duplicateClip(clip.id)}
             onDelete={deleteSelected}
@@ -179,8 +291,10 @@ export function Inspector({ width = 280 }: { width?: number }) {
 
 function ClipInspector({
   clip,
+  track,
   trackName,
   onUpdate,
+  onUpdateTrack,
   onRecord,
   onDuplicate,
   onDelete,
@@ -189,8 +303,10 @@ function ClipInspector({
   playhead,
 }: {
   clip: Clip;
+  track: Track;
   trackName: string;
   onUpdate: (patch: ClipPatch, record?: boolean) => void;
+  onUpdateTrack: (patch: Partial<Track>, record?: boolean) => void;
   onRecord: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
@@ -206,6 +322,17 @@ function ClipInspector({
   const asset = project ? assetForClip(project, clip) : undefined;
   const Icon = clip.kind === "text" ? Type : clip.kind === "audio" ? Music2 : clip.kind === "misc" ? SlidersHorizontal : Film;
   const canSplit = playhead > clip.start + 0.05 && playhead < clip.start + clip.duration - 0.05;
+
+  const applyVolumeAutomation = (from: number, to: number, edge: 0 | 1) => {
+    const length = Math.min(1, clip.duration / 2);
+    const frames = clip.keyframes.filter((frame) => frame.property !== "volume");
+    frames.push(
+      { property: "volume", time: edge === 0 ? 0 : clip.duration - length, value: from },
+      { property: "volume", time: edge === 0 ? length : clip.duration, value: to },
+    );
+    onRecord();
+    onUpdate({ keyframes: frames.sort((a, b) => a.time - b.time) });
+  };
 
   return (
     <div className="space-y-5">
@@ -249,6 +376,8 @@ function ClipInspector({
       </div>
 
       {clip.kind !== "misc" ? <RangeNumber label="Speed" value={clip.speed} min={0.25} max={4} step={0.05} suffix="×" onRecord={onRecord} onChange={(value) => onUpdate({ speed: value }, false)} /> : null}
+
+      {clip.kind !== "misc" ? <SpeedRampEditor clip={clip} playhead={playhead} onUpdate={onUpdate} onRecord={onRecord} /> : null}
 
       {clip.kind !== "misc" ? (
         <>
@@ -444,19 +573,90 @@ function ClipInspector({
 
       {clip.kind !== "text" && activeTab === "Audio" ? (
         <>
-          {sectionTitle("Audio")}
-          <div onPointerDown={onRecord}>
+          {sectionTitle("Level")}
+          <div onPointerDown={onRecord} className="space-y-3">
             <Slider label="Clip volume" value={clip.volume} min={0} max={2} step={0.01} format={(value) => `${Math.round(value * 100)}%`} onChange={(value) => onUpdate({ volume: value }, false)} />
-          </div>
-          <div className="space-y-3">
+            <Slider label="Track volume" value={track.volume ?? 1} min={0} max={2} step={0.01} format={(value) => `${Math.round(value * 100)}%`} onChange={(value) => onUpdateTrack({ volume: value }, false)} />
+            <Slider
+              label="Pan"
+              value={clip.pan}
+              min={-1}
+              max={1}
+              step={0.01}
+              format={(value) => (Math.abs(value) < 0.01 ? "Center" : value < 0 ? `${Math.round(-value * 100)}% left` : `${Math.round(value * 100)}% right`)}
+              onChange={(value) => onUpdate({ pan: value }, false)}
+            />
             <RangeNumber label="Pitch" value={clip.pitch} min={-12} max={12} step={0.1} suffix="st" onRecord={onRecord} onChange={(value) => onUpdate({ pitch: value }, false)} />
-            <RangeNumber label="Bass" value={clip.bass} min={-12} max={12} step={0.5} suffix="dB" onRecord={onRecord} onChange={(value) => onUpdate({ bass: value }, false)} />
-            <RangeNumber label="Treble" value={clip.treble} min={-12} max={12} step={0.5} suffix="dB" onRecord={onRecord} onChange={(value) => onUpdate({ treble: value }, false)} />
           </div>
+
+          {sectionTitle("Equalizer")}
+          <div className="space-y-3">
+            <RangeNumber label="Low gain" value={clip.bass} min={-12} max={12} step={0.5} suffix="dB" onRecord={onRecord} onChange={(value) => onUpdate({ bass: value }, false)} />
+            <RangeNumber label="Low frequency" value={clip.bassFrequency} min={40} max={1000} step={10} suffix="Hz" onRecord={onRecord} onChange={(value) => onUpdate({ bassFrequency: value }, false)} />
+            <RangeNumber label="Mid gain" value={clip.mid} min={-24} max={24} step={0.5} suffix="dB" onRecord={onRecord} onChange={(value) => onUpdate({ mid: value }, false)} />
+            <RangeNumber label="Mid frequency" value={clip.midFrequency} min={100} max={8000} step={50} suffix="Hz" onRecord={onRecord} onChange={(value) => onUpdate({ midFrequency: value }, false)} />
+            <RangeNumber label="Mid width" value={clip.midWidth} min={0.25} max={4} step={0.25} suffix="oct" onRecord={onRecord} onChange={(value) => onUpdate({ midWidth: value }, false)} />
+            <RangeNumber label="High gain" value={clip.treble} min={-12} max={12} step={0.5} suffix="dB" onRecord={onRecord} onChange={(value) => onUpdate({ treble: value }, false)} />
+            <RangeNumber label="High frequency" value={clip.trebleFrequency} min={2000} max={16000} step={100} suffix="Hz" onRecord={onRecord} onChange={(value) => onUpdate({ trebleFrequency: value }, false)} />
+          </div>
+
+          {sectionTitle("Dynamics")}
+          <label className="mb-3 flex items-center gap-2 text-[11px] text-muted">
+            <input
+              type="checkbox"
+              checked={clip.compressor?.enabled ?? false}
+              onChange={(event) => onUpdate({ compressor: { enabled: event.target.checked } })}
+            />
+            Enable compressor
+          </label>
+          <div className="space-y-3">
+            <RangeNumber label="Threshold" value={clip.compressor?.threshold ?? DEFAULT_COMPRESSOR.threshold} min={-60} max={0} step={1} suffix="dB" onRecord={onRecord} onChange={(value) => onUpdate({ compressor: { threshold: value } }, false)} />
+            <RangeNumber label="Ratio" value={clip.compressor?.ratio ?? DEFAULT_COMPRESSOR.ratio} min={1} max={20} step={0.5} suffix=":1" onRecord={onRecord} onChange={(value) => onUpdate({ compressor: { ratio: value } }, false)} />
+            <RangeNumber label="Attack" value={clip.compressor?.attack ?? DEFAULT_COMPRESSOR.attack} min={0.1} max={500} step={1} suffix="ms" onRecord={onRecord} onChange={(value) => onUpdate({ compressor: { attack: value } }, false)} />
+            <RangeNumber label="Release" value={clip.compressor?.release ?? DEFAULT_COMPRESSOR.release} min={10} max={2000} step={10} suffix="ms" onRecord={onRecord} onChange={(value) => onUpdate({ compressor: { release: value } }, false)} />
+          </div>
+
+          {sectionTitle("Fades")}
           <div className="space-y-3">
             <RangeNumber label="Fade in" value={clip.fadeIn} min={0} max={clip.duration} step={0.05} suffix="s" onRecord={onRecord} onChange={(value) => onUpdate({ fadeIn: value }, false)} />
             <RangeNumber label="Fade out" value={clip.fadeOut} min={0} max={clip.duration} step={0.05} suffix="s" onRecord={onRecord} onChange={(value) => onUpdate({ fadeOut: value }, false)} />
           </div>
+
+          {sectionTitle("Automation")}
+          <div className="flex flex-wrap gap-1.5">
+            <button className="btn btn-ghost btn-sm" onClick={() => applyVolumeAutomation(0, 1, 0)}>Volume fade in</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => applyVolumeAutomation(1, 0, 1)}>Volume fade out</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => applyVolumeAutomation(0.4, 1.6, 0)}>Volume ramp up</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => applyVolumeAutomation(1.6, 0.4, 0)}>Volume ramp down</button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => {
+                onRecord();
+                onUpdate({ keyframes: clip.keyframes.filter((frame) => frame.property !== "volume") });
+              }}
+            >
+              Clear
+            </button>
+          </div>
+          <p className="mt-2 text-[10px] leading-relaxed text-dim">Volume automation is drawn on the timeline and is applied in the preview and the exported file.</p>
+
+          {sectionTitle("Ducking")}
+          <label className="mb-3 flex items-center gap-2 text-[11px] text-muted">
+            <input
+              type="checkbox"
+              checked={track.ducking?.enabled ?? false}
+              onChange={(event) => onUpdateTrack({ ducking: { ...DEFAULT_DUCKING, ...track.ducking, enabled: event.target.checked } })}
+            />
+            Duck this track under other audio
+          </label>
+          <div className="space-y-3">
+            <RangeNumber label="Duck amount" value={track.ducking?.amount ?? DEFAULT_DUCKING.amount} min={0} max={24} step={0.5} suffix="dB" onRecord={onRecord} onChange={(value) => onUpdateTrack({ ducking: { ...DEFAULT_DUCKING, ...track.ducking, amount: value } }, false)} />
+            <RangeNumber label="Trigger threshold" value={track.ducking?.threshold ?? DEFAULT_DUCKING.threshold} min={-60} max={0} step={1} suffix="dB" onRecord={onRecord} onChange={(value) => onUpdateTrack({ ducking: { ...DEFAULT_DUCKING, ...track.ducking, threshold: value } }, false)} />
+            <RangeNumber label="Attack" value={track.ducking?.attack ?? DEFAULT_DUCKING.attack} min={0.01} max={2} step={0.01} suffix="s" onRecord={onRecord} onChange={(value) => onUpdateTrack({ ducking: { ...DEFAULT_DUCKING, ...track.ducking, attack: value } }, false)} />
+            <RangeNumber label="Release" value={track.ducking?.release ?? DEFAULT_DUCKING.release} min={0.05} max={5} step={0.05} suffix="s" onRecord={onRecord} onChange={(value) => onUpdateTrack({ ducking: { ...DEFAULT_DUCKING, ...track.ducking, release: value } }, false)} />
+          </div>
+          <p className="mt-2 text-[10px] leading-relaxed text-dim">The track is attenuated while other, non-ducking tracks play audio above the trigger threshold. Preview and export use the same envelope.</p>
+
           {clip.kind === "video" && asset?.info.hasAudio ? (
             <button className="btn btn-secondary btn-sm mt-4 w-full" onClick={onExtractAudio}><AudioLines size={13} /> Extract audio to timeline</button>
           ) : null}
@@ -503,6 +703,15 @@ function ClipInspector({
 
           <RangeNumber label="Text rotation" value={clip.text.rotation} min={-1800} max={1800} step={1} suffix="°" onRecord={onRecord} onChange={(value) => onUpdate({ text: { rotation: value } }, false)} />
 
+          <label className="block">
+            <span className="label">Font family</span>
+            <select className="field" value={clip.text.fontFamily} onChange={(event) => onUpdate({ text: { fontFamily: event.target.value } })}>
+              {["Segoe UI", "Arial", "Georgia", "Times New Roman", "Courier New", "Impact", "Trebuchet MS", "Verdana"].map((family) => (
+                <option key={family} value={family}>{family}</option>
+              ))}
+            </select>
+          </label>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <span className="label">Weight</span>
@@ -539,6 +748,19 @@ function ClipInspector({
                 ))}
               </div>
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              className={`flex h-[34px] items-center justify-center gap-2 rounded-lg border text-[11.5px] italic transition ${
+                clip.text.italic ? "border-accent/50 bg-accent-soft" : "border-line bg-surface-2/60 text-muted"
+              }`}
+              onClick={() => onUpdate({ text: { italic: !clip.text?.italic } })}
+              aria-pressed={clip.text.italic}
+            >
+              <Type size={13} /> Italic
+            </button>
+            <NumberField label="Line height" value={clip.text.lineHeight} min={0.8} max={3} step={0.05} suffix="×" onCommit={(value) => onUpdate({ text: { lineHeight: value } })} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -589,9 +811,27 @@ function ClipInspector({
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="label">Shadow color</span>
+              <div className="flex h-[34px] items-center gap-2 rounded-lg border border-line bg-[#101013] px-2">
+                <input type="color" className="h-5 w-6 cursor-pointer rounded border-0 bg-transparent p-0" value={clip.text.shadowColor} onFocus={onRecord} onChange={(event) => onUpdate({ text: { shadowColor: event.target.value } }, false)} />
+                <span className="font-mono text-[10px] uppercase text-muted">{clip.text.shadowColor}</span>
+              </div>
+            </label>
+            <label className="block">
+              <span className="label">Box color</span>
+              <div className="flex h-[34px] items-center gap-2 rounded-lg border border-line bg-[#101013] px-2">
+                <input type="color" className="h-5 w-6 cursor-pointer rounded border-0 bg-transparent p-0" value={clip.text.backgroundColor} onFocus={onRecord} onChange={(event) => onUpdate({ text: { backgroundColor: event.target.value } }, false)} />
+                <span className="font-mono text-[10px] uppercase text-muted">{clip.text.backgroundColor}</span>
+              </div>
+            </label>
+          </div>
+
           <div className="space-y-3">
             <div onPointerDown={onRecord}><Slider label="Brightness" value={clip.text.brightness} min={0} max={2} step={0.05} format={(value) => `${Math.round(value * 100)}%`} onChange={(value) => onUpdate({ text: { brightness: value } }, false)} /></div>
             <div onPointerDown={onRecord}><Slider label="Shadow" value={clip.text.shadow} min={0} max={1} step={0.01} format={(value) => `${Math.round(value * 100)}%`} onChange={(value) => onUpdate({ text: { shadow: value } }, false)} /></div>
+            <div onPointerDown={onRecord}><Slider label="Text box opacity" value={clip.text.backgroundOpacity} min={0} max={1} step={0.01} format={(value) => `${Math.round(value * 100)}%`} onChange={(value) => onUpdate({ text: { backgroundOpacity: value } }, false)} /></div>
             <RangeNumber label="Text arc" value={clip.text.curve} min={-360} max={360} step={1} suffix="°" onRecord={onRecord} onChange={(value) => onUpdate({ text: { curve: value } }, false)} />
           </div>
         </>

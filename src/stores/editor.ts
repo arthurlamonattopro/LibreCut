@@ -1,10 +1,23 @@
 import { produce } from "immer";
 import { create } from "zustand";
-import type { Asset, Clip, ColorEffectOptions, Project, TextOptions, Track, TrackKind } from "../lib/types";
+import type { Asset, AudioCompressor, Clip, ColorEffectOptions, Project, TextOptions, Track, TrackKind } from "../lib/types";
 import { clamp, projectDuration } from "../lib/time";
+import { compactMagneticTrack, findClip, removeClip, rippleTrimEnd, rippleTrimStart, settleMagneticTracks } from "../lib/timeline";
+import { sliceSpeedRamp } from "../lib/speed";
+import {
+  DEFAULT_BASS_FREQUENCY,
+  DEFAULT_COMPRESSOR,
+  DEFAULT_MID_FREQUENCY,
+  DEFAULT_MID_WIDTH,
+  DEFAULT_TREBLE_FREQUENCY,
+} from "../lib/audio";
 import { createTrack, newId } from "./projects";
 
-export type ClipPatch = Omit<Partial<Clip>, "text" | "effect"> & { text?: Partial<TextOptions>; effect?: Partial<ColorEffectOptions> };
+export type ClipPatch = Omit<Partial<Clip>, "text" | "effect" | "compressor"> & {
+  text?: Partial<TextOptions>;
+  effect?: Partial<ColorEffectOptions>;
+  compressor?: Partial<AudioCompressor>;
+};
 
 interface EditorState {
   project: Project | null;
@@ -13,6 +26,7 @@ interface EditorState {
   selectedClipId: string | null;
   zoom: number;
   snap: boolean;
+  ripple: boolean;
   dirty: boolean;
   savedAt: number;
   undoStack: Project[];
@@ -38,11 +52,14 @@ interface EditorState {
   deleteClip: (clipId: string) => void;
   deleteSelected: () => void;
   selectClip: (clipId: string | null) => void;
-  updateTrack: (trackId: string, patch: Partial<Track>) => void;
+  updateTrack: (trackId: string, patch: Partial<Track>, record?: boolean) => void;
   setCurrentTime: (time: number) => void;
   setPlaying: (playing: boolean) => void;
   setZoom: (zoom: number) => void;
   toggleSnap: () => void;
+  toggleRipple: () => void;
+  setMagneticTrack: (trackId: string | null) => void;
+  settleMagneticTrack: (trackId: string) => void;
   recordSnapshot: () => void;
   undo: () => void;
   redo: () => void;
@@ -63,7 +80,17 @@ function findAvailableTrack(
   const preferred = preferredTrackId
     ? project.tracks.find((track) => track.id === preferredTrackId && track.kind === kind)
     : undefined;
-  if (preferred && !preferred.locked && !overlaps(preferred)) return preferred;
+  if (preferred && !preferred.locked) {
+    if (!overlaps(preferred) || preferred.magnetic) return preferred;
+    // The user targeted a specific, occupied non-magnetic track.
+    return undefined;
+  }
+  if (!preferredTrackId) {
+    // The magnetic main track accepts inserts even when the drop point is
+    // occupied; its clips are repacked in order afterwards.
+    const magnetic = project.tracks.find((track) => track.kind === kind && track.magnetic && !track.locked);
+    if (magnetic) return magnetic;
+  }
   return project.tracks.find((track) => track.kind === kind && !track.locked && !overlaps(track));
 }
 
@@ -90,14 +117,20 @@ export const useEditor = create<EditorState>((set, get) => ({
   selectedClipId: null,
   zoom: 70,
   snap: true,
+  ripple: false,
   dirty: false,
   savedAt: Date.now(),
   undoStack: [],
   redoStack: [],
 
   openProject: (project) => {
+    const tracks = project.tracks.map((track) => ({ ...track, magnetic: Boolean(track.magnetic) }));
+    if (!tracks.some((track) => track.magnetic)) {
+      const firstVideo = tracks.find((track) => track.kind === "video");
+      if (firstVideo) firstVideo.magnetic = true;
+    }
     set({
-      project,
+      project: { ...project, tracks },
       currentTime: 0,
       playing: false,
       selectedClipId: null,
@@ -176,6 +209,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       duration,
       trimIn: 0,
       speed: 1,
+      speedRamp: [],
       volume: 1,
       opacity: 1,
       fit: "contain",
@@ -193,12 +227,20 @@ export const useEditor = create<EditorState>((set, get) => ({
       pitch: 0,
       bass: 0,
       treble: 0,
+      mid: 0,
+      bassFrequency: DEFAULT_BASS_FREQUENCY,
+      midFrequency: DEFAULT_MID_FREQUENCY,
+      midWidth: DEFAULT_MID_WIDTH,
+      trebleFrequency: DEFAULT_TREBLE_FREQUENCY,
+      pan: 0,
+      compressor: { ...DEFAULT_COMPRESSOR },
     };
 
     get().mutate((draft) => {
       let target = findAvailableTrack(draft, kind, clipStart, duration, trackId);
       if (!target) target = createLayer(draft, kind);
       target.clips.push(clip);
+      compactMagneticTrack(target);
     });
     set({ selectedClipId: clip.id, playing: false });
   },
@@ -243,6 +285,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       duration: 3,
       trimIn: 0,
       speed: 1,
+      speedRamp: [],
       volume: 1,
       opacity: 1,
       fit: "contain",
@@ -259,6 +302,13 @@ export const useEditor = create<EditorState>((set, get) => ({
       pitch: 0,
       bass: 0,
       treble: 0,
+      mid: 0,
+      bassFrequency: DEFAULT_BASS_FREQUENCY,
+      midFrequency: DEFAULT_MID_FREQUENCY,
+      midWidth: DEFAULT_MID_WIDTH,
+      trebleFrequency: DEFAULT_TREBLE_FREQUENCY,
+      pan: 0,
+      compressor: { ...DEFAULT_COMPRESSOR },
       text: {
         text: text?.trim() || "Your text",
         x: 0.5,
@@ -267,13 +317,19 @@ export const useEditor = create<EditorState>((set, get) => ({
         rotation: 0,
         color: "#FFFFFF",
         fontWeight: "bold",
+        italic: false,
+        fontFamily: "Segoe UI",
         align: "center",
         underline: false,
         characterSpacing: 0,
+        lineHeight: 1.2,
         outlineColor: "#000000",
         outlineWidth: 0,
+        backgroundColor: "#000000",
+        backgroundOpacity: 0,
         brightness: 1,
         shadow: 0.5,
+        shadowColor: "#000000",
         curve: 0,
       },
     };
@@ -292,8 +348,11 @@ export const useEditor = create<EditorState>((set, get) => ({
     const start = Math.max(0, at ?? state.currentTime);
     const clip: Clip = {
       id: newId(), kind: "misc", name: preset?.name ?? "Color filter", start, duration: 5, trimIn: 0,
-      speed: 1, volume: 1, opacity: 1, fit: "contain", x: 0, y: 0, scale: 1,
+      speed: 1, speedRamp: [], volume: 1, opacity: 1, fit: "contain", x: 0, y: 0, scale: 1,
       rotation: 0, mask: "none", fadeIn: 0, fadeOut: 0, pitch: 0, bass: 0, treble: 0,
+      mid: 0, bassFrequency: DEFAULT_BASS_FREQUENCY, midFrequency: DEFAULT_MID_FREQUENCY,
+      midWidth: DEFAULT_MID_WIDTH, trebleFrequency: DEFAULT_TREBLE_FREQUENCY, pan: 0,
+      compressor: { ...DEFAULT_COMPRESSOR },
       keyframes: [], transitionIn: { type: "none", duration: 0.5 }, transitionOut: { type: "none", duration: 0.5 },
       effect: { brightness: 0, contrast: 1, saturation: 1, hue: 0, sepia: 0, blur: 0, vignette: 0, motionBlur: 0, fadeIn: 0, fadeOut: 0, mask: "none", maskX: 0.5, maskY: 0.5, maskSize: 0.5, ...preset?.effect },
     };
@@ -325,6 +384,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       if (!draftSource || !draftTarget || index < 0 || draftTarget.locked) return;
       const [moved] = draftSource.clips.splice(index, 1);
       draftTarget.clips.push(moved);
+      settleMagneticTracks(draft, [draftSource.id, draftTarget.id]);
     });
   },
 
@@ -333,12 +393,15 @@ export const useEditor = create<EditorState>((set, get) => ({
       for (const track of project.tracks) {
         const clip = track.clips.find((item) => item.id === clipId);
         if (!clip) continue;
-        const { text: textPatch, effect: effectPatch, ...rest } = patch;
+        const { text: textPatch, effect: effectPatch, compressor: compressorPatch, ...rest } = patch;
         if (textPatch && clip.text) {
           clip.text = { ...clip.text, ...textPatch };
         }
         if (effectPatch && clip.effect) {
           clip.effect = { ...clip.effect, ...effectPatch };
+        }
+        if (compressorPatch) {
+          clip.compressor = { ...DEFAULT_COMPRESSOR, ...clip.compressor, ...compressorPatch };
         }
         Object.assign(clip, rest);
         return;
@@ -347,35 +410,53 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   trimClip: (clipId, edge, time) => {
-    const project = get().project;
+    const state = get();
+    const project = state.project;
     if (!project) return;
-    const clip = project.tracks.flatMap((track) => track.clips).find((item) => item.id === clipId);
-    if (!clip) return;
+    const found = findClip(project, clipId);
+    if (!found || found.track.locked) return;
+    const { clip } = found;
     const asset = clip.assetId ? project.assets.find((item) => item.id === clip.assetId) : undefined;
     const minDuration = 0.1;
 
-    if (edge === "start") {
-      const earliest = Math.max(0, clip.start - clip.trimIn / Math.max(clip.speed, 0.01));
-      const target = clamp(time, earliest, clip.start + clip.duration - minDuration);
-      const delta = target - clip.start;
-      get().updateClip(
-        clipId,
-        {
-          start: target,
-          duration: clip.duration - delta,
-          trimIn: Math.max(0, clip.trimIn + delta * clip.speed),
-        },
-        false,
-      );
-      return;
-    }
+    get().mutate((draft) => {
+      const draftFound = findClip(draft, clipId);
+      if (!draftFound) return;
+      const { track, clip: draftClip } = draftFound;
+      const ripple = state.ripple || Boolean(track.magnetic);
+      const originalDuration = draftClip.duration;
 
-    let maxDuration = Number.POSITIVE_INFINITY;
-    if (asset && !asset.info.isImage && asset.info.duration > 0) {
-      maxDuration = Math.max(minDuration, (asset.info.duration - clip.trimIn) / Math.max(clip.speed, 0.01));
-    }
-    const target = clamp(time, clip.start + minDuration, clip.start + maxDuration);
-    get().updateClip(clipId, { duration: target - clip.start }, false);
+      if (edge === "start") {
+        const earliest = Math.max(0, draftClip.start - draftClip.trimIn / Math.max(draftClip.speed, 0.01));
+        const target = clamp(time, earliest, draftClip.start + draftClip.duration - minDuration);
+        const delta = target - draftClip.start;
+        if (ripple) {
+          rippleTrimStart(draft, draftClip, target, minDuration);
+        } else {
+          draftClip.start = target;
+          draftClip.duration -= delta;
+          draftClip.trimIn = Math.max(0, draftClip.trimIn + delta * draftClip.speed);
+        }
+        if (delta > 0.001 && draftClip.speedRamp?.length) {
+          draftClip.speedRamp = sliceSpeedRamp(draftClip.speedRamp, delta, originalDuration);
+        }
+        return;
+      }
+
+      let maxDuration = Number.POSITIVE_INFINITY;
+      if (asset && !asset.info.isImage && asset.info.duration > 0) {
+        maxDuration = Math.max(minDuration, (asset.info.duration - draftClip.trimIn) / Math.max(draftClip.speed, 0.01));
+      }
+      const target = clamp(time, draftClip.start + minDuration, draftClip.start + maxDuration);
+      if (ripple) {
+        rippleTrimEnd(draft, draftClip, target);
+      } else {
+        draftClip.duration = target - draftClip.start;
+      }
+      if (draftClip.speedRamp?.length) {
+        draftClip.speedRamp = sliceSpeedRamp(draftClip.speedRamp, 0, draftClip.duration);
+      }
+    }, false);
   },
 
   splitClip: (clipId, time) => {
@@ -390,17 +471,21 @@ export const useEditor = create<EditorState>((set, get) => ({
       get().mutate((draft) => {
         const draftTrack = draft.tracks.find((item) => item.id === track.id);
         const draftClip = draftTrack?.clips.find((item) => item.id === clipId);
-        if (!draftClip) return;
+        if (!draftClip || !draftTrack) return;
+        const originalDuration = draftClip.duration;
         const right: Clip = {
           ...draftClip,
           id: rightId,
           start: time,
-          duration: draftClip.duration - local,
+          duration: originalDuration - local,
           trimIn: draftClip.trimIn + local * draftClip.speed,
+          speedRamp: sliceSpeedRamp(draftClip.speedRamp, local, originalDuration),
           text: draftClip.text ? { ...draftClip.text } : undefined,
         };
         draftClip.duration = local;
-        draftTrack?.clips.push(right);
+        draftClip.speedRamp = sliceSpeedRamp(draftClip.speedRamp, 0, local);
+        draftTrack.clips.push(right);
+        compactMagneticTrack(draftTrack);
       });
       set({ selectedClipId: rightId });
       return;
@@ -438,7 +523,10 @@ export const useEditor = create<EditorState>((set, get) => ({
         text: clip.text ? { ...clip.text } : undefined,
       };
       get().mutate((draft) => {
-        draft.tracks.find((item) => item.id === track.id)?.clips.push(copy);
+        const target = draft.tracks.find((item) => item.id === track.id);
+        if (!target) return;
+        target.clips.push(copy);
+        compactMagneticTrack(target);
       });
       set({ selectedClipId: copy.id });
       return;
@@ -446,10 +534,9 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   deleteClip: (clipId) => {
+    const ripple = get().ripple;
     get().mutate((project) => {
-      for (const track of project.tracks) {
-        track.clips = track.clips.filter((clip) => clip.id !== clipId);
-      }
+      removeClip(project, clipId, ripple);
     });
     if (get().selectedClipId === clipId) set({ selectedClipId: null });
   },
@@ -461,11 +548,11 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   selectClip: (clipId) => set({ selectedClipId: clipId }),
 
-  updateTrack: (trackId, patch) => {
+  updateTrack: (trackId, patch, record = true) => {
     get().mutate((project) => {
       const track = project.tracks.find((item) => item.id === trackId);
       if (track) Object.assign(track, patch);
-    });
+    }, record);
   },
 
   setCurrentTime: (time) => {
@@ -479,6 +566,27 @@ export const useEditor = create<EditorState>((set, get) => ({
   setZoom: (zoom) => set({ zoom: clamp(zoom, 12, 320) }),
 
   toggleSnap: () => set((state) => ({ snap: !state.snap })),
+
+  toggleRipple: () => set((state) => ({ ripple: !state.ripple })),
+
+  setMagneticTrack: (trackId) => {
+    get().mutate((project) => {
+      for (const track of project.tracks) {
+        track.magnetic = track.id === trackId;
+      }
+      if (trackId) {
+        const track = project.tracks.find((item) => item.id === trackId);
+        if (track) compactMagneticTrack(track);
+      }
+    });
+  },
+
+  settleMagneticTrack: (trackId) => {
+    get().mutate((project) => {
+      const track = project.tracks.find((item) => item.id === trackId);
+      if (track) compactMagneticTrack(track);
+    }, false);
+  },
 
   recordSnapshot: () => {
     const project = get().project;

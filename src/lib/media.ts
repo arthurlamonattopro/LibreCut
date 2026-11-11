@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { revealItemInDir, openPath } from "@tauri-apps/plugin-opener";
 import type {
   ExportProgress,
   ExportRequest,
@@ -97,6 +97,10 @@ export async function getRuntimeStatus(): Promise<RuntimeStatus> {
 
 export async function revealFile(path: string): Promise<void> {
   await revealItemInDir(path);
+}
+
+export async function openFolder(path: string): Promise<void> {
+  await openPath(path);
 }
 
 const MEDIA_FILTERS = [

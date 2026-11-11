@@ -8,7 +8,7 @@ LibreCut is an early-stage desktop editor built for fast, everyday cuts: import 
 
 ## Status
 
-This repository contains the **v0.1 development preview**. The core editing loop is implemented and the Tauri window launches successfully on Windows; expect rough edges and missing advanced features.
+This repository contains the **v0.1 development preview** with the **v0.2 timeline-depth** work merged in. The core editing loop is implemented and the Tauri window launches successfully on Windows; expect rough edges and missing advanced features.
 
 Verified today:
 
@@ -26,17 +26,22 @@ Working today:
 - Project library with local autosave and crash-safe project copies (`.librecut`)
 - Media import with metadata probing, thumbnail strips, waveforms, and automatic preview proxies
 - Multi-track timeline with video, audio, text, and miscellaneous effect tracks
+- Magnetic main track with packed clips, plus a ripple toggle for deletes and trims
 - Clip move, trim, split, duplicate, delete, snapping, zoom, and undo/redo
-- Live canvas preview with compositing, transforms, opacity, transitions, keyframes, text, speed, and audio effects
-- Inspector for clip transitions, animation presets, keyframes, color filters with masks, audio pitch/EQ, and typography
+- Speed ramps with editable speed points, in the preview and the export
+- Live canvas preview with compositing, transforms, opacity, transitions, keyframes, text, and audio effects
+- Inspector for clip transitions, animation presets, keyframes, color filters with masks, three-band EQ, panning, compression, ducking, and typography
+- Audio ducking, track volume, volume automation curves, and per-clip fades
+- Text clips with font family, italics, line height, shadow colour, background box, and safe-area guides
+- Local AI captions and speech generation with first-use model downloads, optional offline model bundles, and a strict offline mode
 - H.264/AAC export with size presets, NVENC or CPU encoding, progress, and cancellation
 - English UI, keyboard shortcuts, and a local-only privacy model
 
 Not in v0.1:
 
-- Speed ramps, filters/LUTs, chroma key, motion tracking
-- Auto-captions, audio ducking, multi-cam, nested sequences
-- Templates, effects store, plugins, cloud sync, mobile
+- LUT import, motion tracking, and nested sequences
+- Multi-cam editing, templates, an effects store, and cloud sync
+- Mobile builds
 - macOS/Linux release builds (the architecture is cross-platform, Windows is the focus)
 
 ## Requirements
@@ -64,12 +69,23 @@ pnpm test              # unit tests
 pnpm test:e2e          # real-media Rust export/probe tests
 pnpm build             # production frontend build
 pnpm fetch:ffmpeg      # download verified FFmpeg sidecars
+pnpm fetch:models      # download local AI model bundles
 pnpm verify:installer  # inspect built NSIS/MSI artifacts
 cargo check            # Rust (run from src-tauri)
 cargo test             # Rust tests
 ```
 
 If your shell cannot see FFmpeg after installation, refresh `PATH` or restart the terminal. LibreCut reads `LIBRECUT_FFMPEG` and `LIBRECUT_FFPROBE` as optional overrides. Release builds resolve the bundled sidecars first.
+
+### Offline AI models
+
+Local AI tools download a Hugging Face model on first use and cache it. To use captions, speech, or background removal without any download, put model folders in LibreCut's models directory:
+
+```text
+%APPDATA%\app.librecut.desktop\models\<organization>\<model>\
+```
+
+Run `pnpm fetch:models` to download the recommended set (Whisper Small, MMS voices for English/Spanish/Portuguese/French, and MODNet). Pass `-Models organization/model` to fetch another Transformers.js-compatible repository. Then open AI tools and use **Refresh** to rescan the folder. Enable **Strict offline** to block remote downloads and verify that a local bundle is complete.
 
 ### Release builds
 
@@ -87,6 +103,7 @@ React 19 + TypeScript
   ▼
 Rust (src-tauri)
   ├── media protocol: librecut:// with HTTP Range support
+  ├── model protocol: librecutmodel:// for bundled and app-data model files
   ├── project file I/O and atomic saves
   ├── export orchestration and progress/cancel
   ▼
@@ -99,7 +116,7 @@ ffmpeg / ffprobe
 ```
 
 - **Timeline timebase:** integer-friendly seconds in the UI, authoritative FFmpeg timestamps in export.
-- **Preview:** HTML media element pool → 2D canvas compositor → Web Audio gain graph.
+- **Preview:** HTML media element pool → 2D canvas compositor → Web Audio graph (EQ → pan → compressor → gain).
 - **Proxies:** 720p/1080p H.264 copies are generated for 4K or non-web-friendly codecs so scrubbing stays responsive.
 - **Export:** overlay-by-timestamp filter graph; supports gaps, overlaps, speed, text, and mixed audio. Filters are written to a script file to avoid Windows command-line limits.
 - **Runtime tools:** `ffmpeg.exe` and `ffprobe.exe` are Tauri sidecars next to the app. Resolution order is `LIBRECUT_FFMPEG`/`LIBRECUT_FFPROBE`, bundled sidecar, then `PATH`.
@@ -109,7 +126,7 @@ More detail: [docs/architecture.md](docs/architecture.md) and [docs/project-form
 
 ## Privacy
 
-LibreCut makes no network requests at runtime. Media never leaves the machine. There is no analytics, account system, or cloud dependency. See [PRIVACY.md](PRIVACY.md).
+LibreCut makes no unsolicited network requests. Media never leaves the machine. Local AI models contact Hugging Face only when a model is missing from the local bundle and strict offline mode is off. There is no analytics, account system, or cloud dependency. See [PRIVACY.md](PRIVACY.md).
 
 ## License
 
@@ -130,7 +147,7 @@ If you find a bug, include:
 
 ## Roadmap
 
-- **v0.2:** magnetic main track, ripple edits, speed ramps, offline model bundles, audio ducking and expanded EQ
+- **v0.2:** magnetic main track, ripple edits, speed ramps, offline model bundles, audio ducking and expanded EQ — landed
 - **v0.3:** LUT import, templates, broader plugin API, opt-in auto-update, macOS/Linux builds
 - **v1.0:** stability and performance hardening, accessibility audit, packaging and signing, community presets
 

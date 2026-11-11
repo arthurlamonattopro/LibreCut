@@ -1,5 +1,7 @@
 import type { Project, ProjectSummary, Track, TrackKind } from "../lib/types";
 import { projectDuration } from "../lib/time";
+import { normalizeProject } from "../lib/project";
+import { DEFAULT_DUCKING } from "../lib/audio";
 
 const INDEX_KEY = "librecut:projects:v1";
 const PROJECT_KEY = (id: string) => `librecut:project:${id}:v1`;
@@ -8,7 +10,7 @@ export function newId(): string {
   return crypto.randomUUID();
 }
 
-export function createTrack(kind: TrackKind, name: string): Track {
+export function createTrack(kind: TrackKind, name: string, magnetic = false): Track {
   return {
     id: newId(),
     kind,
@@ -16,6 +18,9 @@ export function createTrack(kind: TrackKind, name: string): Track {
     muted: false,
     hidden: false,
     locked: false,
+    magnetic,
+    volume: 1,
+    ducking: { ...DEFAULT_DUCKING },
     clips: [],
   };
 }
@@ -38,7 +43,7 @@ export function createProject(
     updatedAt: now,
     assets: [],
     tracks: [
-      createTrack("video", "Video 1"),
+      createTrack("video", "Video 1", true),
       createTrack("audio", "Audio 1"),
       createTrack("text", "Text 1"),
     ],
@@ -111,40 +116,7 @@ export function loadProject(id: string): Project | null {
     if (!raw) return null;
     const project = JSON.parse(raw) as Project;
     if (project.schemaVersion !== 1 || !Array.isArray(project.tracks)) return null;
-    for (const track of project.tracks) for (const clip of track.clips) {
-      clip.x ??= 0;
-      clip.y ??= 0;
-      clip.scale ??= 1;
-      clip.rotation ??= 0;
-      clip.mask ??= "none";
-      clip.fadeIn ??= 0;
-      clip.fadeOut ??= 0;
-      clip.pitch ??= 0;
-      clip.bass ??= 0;
-      clip.treble ??= 0;
-      clip.keyframes ??= [];
-      clip.transitionIn ??= { type: "none", duration: 0.5 };
-      clip.transitionOut ??= { type: "none", duration: 0.5 };
-      if (clip.kind === "misc") {
-        clip.effect ??= { brightness: 0, contrast: 1, saturation: 1, hue: 0, sepia: 0, blur: 0, vignette: 0, motionBlur: 0, fadeIn: 0, fadeOut: 0, mask: "none", maskX: 0.5, maskY: 0.5, maskSize: 0.5 };
-        clip.effect.sepia ??= 0;
-        clip.effect.vignette ??= 0;
-        clip.effect.motionBlur ??= 0;
-        clip.effect.fadeIn ??= 0;
-        clip.effect.fadeOut ??= 0;
-      }
-      if (clip.text) {
-        clip.text.underline ??= false;
-        clip.text.characterSpacing ??= 0;
-        clip.text.outlineColor ??= "#000000";
-        clip.text.outlineWidth ??= 0;
-        clip.text.brightness ??= 1;
-        clip.text.shadow ??= 0.5;
-        clip.text.curve ??= 0;
-        clip.text.rotation ??= 0;
-      }
-    }
-    return project;
+    return normalizeProject(project);
   } catch {
     return null;
   }
