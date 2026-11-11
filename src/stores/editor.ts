@@ -42,6 +42,7 @@ interface EditorState {
   addClip: (assetId: string, trackId?: string, start?: number) => void;
   extractAudio: (clipId: string) => void;
   addTextClip: (text?: string, at?: number, style?: Partial<TextOptions>) => void;
+  importSubtitleCues: (cues: Array<{ start: number; end: number; text: string }>) => void;
   addEffectClip: (preset?: { name: string; effect: Partial<ColorEffectOptions> }, at?: number) => void;
   addTrack: (kind: TrackKind) => void;
   moveClipToTrack: (clipId: string, trackId: string) => void;
@@ -109,6 +110,14 @@ function createLayer(project: Project, kind: TrackKind): Track {
   }
   project.tracks.splice(insertAt, 0, track);
   return track;
+}
+
+function historyLimit(project: Project): number {
+  const clips = project.tracks.reduce((total, track) => total + track.clips.length, 0);
+  if (clips > 2_000 || project.assets.length > 500) return 8;
+  if (clips > 800 || project.assets.length > 200) return 16;
+  if (clips > 300 || project.assets.length > 80) return 32;
+  return 100;
 }
 
 export const useEditor = create<EditorState>((set, get) => ({
@@ -342,6 +351,31 @@ export const useEditor = create<EditorState>((set, get) => ({
       track.clips.push(clip);
     });
     set({ selectedClipId: clip.id, playing: false });
+  },
+
+  importSubtitleCues: (cues) => {
+    if (!cues.length) return;
+    get().mutate((project) => {
+      let track = project.tracks.find((item) => item.kind === "text" && !item.locked);
+      if (!track) track = createLayer(project, "text");
+      for (const cue of cues) {
+        const start = Math.max(0, cue.start);
+        const duration = Math.max(0.1, cue.end - start);
+        track.clips.push({
+          id: newId(), kind: "text", name: cue.text.replace(/\s+/g, " ").slice(0, 40) || "Subtitle cue",
+          start, duration, trimIn: 0, speed: 1, speedRamp: [], volume: 1, opacity: 1, fit: "contain",
+          x: 0, y: 0, scale: 1, rotation: 0, mask: "none", fadeIn: 0, fadeOut: 0, pitch: 0,
+          bass: 0, treble: 0, mid: 0, bassFrequency: DEFAULT_BASS_FREQUENCY, midFrequency: DEFAULT_MID_FREQUENCY,
+          midWidth: DEFAULT_MID_WIDTH, trebleFrequency: DEFAULT_TREBLE_FREQUENCY, pan: 0,
+          compressor: { ...DEFAULT_COMPRESSOR }, keyframes: [], transitionIn: { type: "none", duration: 0 },
+          transitionOut: { type: "none", duration: 0 }, subtitleCue: true,
+          text: { text: cue.text, x: 0.5, y: 0.9, size: Math.round(project.height * 0.045), rotation: 0,
+            color: "#FFFFFF", fontWeight: "bold", italic: false, fontFamily: "Segoe UI", align: "center",
+            underline: false, characterSpacing: 0, lineHeight: 1.2, outlineColor: "#000000", outlineWidth: 2,
+            backgroundColor: "#000000", backgroundOpacity: 0.35, brightness: 1, shadow: 0, shadowColor: "#000000", curve: 0 },
+        });
+      }
+    });
   },
 
   addEffectClip: (preset, at) => {
@@ -594,7 +628,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     const project = get().project;
     if (!project) return;
     set((state) => ({
-      undoStack: [...state.undoStack, project].slice(-100),
+      undoStack: [...state.undoStack, project].slice(-historyLimit(project)),
       redoStack: [],
     }));
   },
@@ -606,7 +640,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     set((state) => ({
       project: previous,
       undoStack: state.undoStack.slice(0, -1),
-      redoStack: [...state.redoStack, project].slice(-100),
+      redoStack: [...state.redoStack, project].slice(-historyLimit(project)),
       dirty: true,
       selectedClipId: null,
       playing: false,
@@ -620,7 +654,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     set((state) => ({
       project: next,
       redoStack: state.redoStack.slice(0, -1),
-      undoStack: [...state.undoStack, project].slice(-100),
+      undoStack: [...state.undoStack, project].slice(-historyLimit(project)),
       dirty: true,
       selectedClipId: null,
       playing: false,
@@ -640,7 +674,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         project: next,
         dirty: true,
         undoStack: record
-          ? [...state.undoStack, state.project].slice(-100)
+          ? [...state.undoStack, state.project].slice(-historyLimit(next))
           : state.undoStack,
         redoStack: record ? [] : state.redoStack,
       };

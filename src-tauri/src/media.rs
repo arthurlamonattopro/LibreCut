@@ -158,6 +158,7 @@ pub struct MediaInfo {
     pub width: u32,
     pub height: u32,
     pub fps: f64,
+    pub is_vfr: bool,
     pub rotation: i32,
     pub video_codec: Option<String>,
     pub audio_codec: Option<String>,
@@ -233,13 +234,16 @@ pub async fn probe(path: &Path) -> Result<MediaInfo, String> {
         .unwrap_or("Untitled")
         .to_string();
 
+    let average_fps = ffmpeg::parse_rate(video.and_then(|s| s.get("avg_frame_rate")));
+    let nominal_fps = ffmpeg::parse_rate(video.and_then(|s| s.get("r_frame_rate")));
     Ok(MediaInfo {
         name,
         path: path.to_string_lossy().to_string(),
         duration,
         width: ffmpeg::parse_u32(video.and_then(|s| s.get("width"))),
         height: ffmpeg::parse_u32(video.and_then(|s| s.get("height"))),
-        fps: ffmpeg::parse_rate(video.and_then(|s| s.get("avg_frame_rate"))),
+        fps: average_fps,
+        is_vfr: average_fps > 0.0 && nominal_fps > 0.0 && (average_fps - nominal_fps).abs() > 0.05,
         rotation,
         video_codec: video
             .and_then(|s| s.get("codec_name"))
@@ -419,7 +423,15 @@ pub async fn create_proxy(
             .join("proxies")
             .join(format!("{}_{}p.mp4", ffmpeg::cache_key(&source), height));
 
-    if !target.is_file() {
+    let cached_proxy_is_valid = if target.is_file() {
+        probe(&target).await.is_ok()
+    } else {
+        false
+    };
+    if !cached_proxy_is_valid {
+        // An interrupted FFmpeg process can leave a partial file at the stable
+        // cache path. Remove it so the next attempt regenerates a valid proxy.
+        let _ = fs::remove_file(&target);
         ffmpeg::ensure_parent(&target)?;
         let mut child = ffmpeg::command(&ffmpeg::ffmpeg_bin())
             .args(["-v", "error", "-y", "-i"])

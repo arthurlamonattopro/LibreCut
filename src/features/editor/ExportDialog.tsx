@@ -37,6 +37,17 @@ import type {
 } from "../../lib/types";
 
 type Preset = "source" | "youtube" | "tiktok" | "square" | "4k";
+type Quality = "draft" | "balanced" | "high";
+type SavedPreset = { name: string; preset: Preset; fps: number; quality: Quality; encoder: "libx264" | "nvenc" };
+const SAVED_PRESETS_KEY = "librecut:export-presets";
+function loadSavedPresets(): SavedPreset[] {
+  try { return JSON.parse(localStorage.getItem(SAVED_PRESETS_KEY) ?? "[]") as SavedPreset[]; } catch { return []; }
+}
+function estimateSizeMb(duration: number, width: number, height: number, quality: Quality): number {
+  const megapixels = width * height / 1_000_000;
+  const videoMbps = Math.max(1.5, megapixels * ({ draft: 3, balanced: 5, high: 8 }[quality]));
+  return (videoMbps + 0.192) * duration / 8;
+}
 
 const PRESETS: Array<{
   id: Preset;
@@ -248,6 +259,11 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const setPlaying = useEditor((state) => state.setPlaying);
   const [preset, setPreset] = useState<Preset>("source");
   const [encoder, setEncoder] = useState<"libx264" | "nvenc">("libx264");
+  const [fps, setFps] = useState(30);
+  const [quality, setQuality] = useState<Quality>("balanced");
+  const [savedPresets, setSavedPresets] = useState<SavedPreset[]>(loadSavedPresets);
+  const [presetName, setPresetName] = useState("");
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [hasNvenc, setHasNvenc] = useState(false);
   const [outputPath, setOutputPath] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -260,9 +276,8 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
   useEffect(() => {
     if (!open || !project) return;
     setPreset(defaultPreset(project));
-    setProgress(null);
+    setFps(project.fps);
     setResult(null);
-    setError("");
     setExporting(false);
     setCancelling(false);
     setOutputPath("");
@@ -317,6 +332,8 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
     setCancelling(false);
     try {
       const request = buildRequest(project, target, dimensions.width, dimensions.height, encoder);
+      request.fps = fps;
+      request.quality = quality;
       const exported = await exportProject(request);
       setResult(exported);
       setProgress((current) => ({ ...(current ?? { time: duration, speed: "", fps: 0 }), percent: 100, time: duration }));
@@ -343,6 +360,18 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const close = () => {
     if (exporting) return;
     onClose();
+  };
+
+  const savePreset = () => {
+    const name = presetName.trim();
+    if (!name) return;
+    const next = [...savedPresets.filter((item) => item.name !== name), { name, preset, fps, quality, encoder }];
+    setSavedPresets(next);
+    localStorage.setItem(SAVED_PRESETS_KEY, JSON.stringify(next));
+    setPresetName("");
+  };
+  const loadPreset = (saved: SavedPreset) => {
+    setPreset(saved.preset); setFps(saved.fps); setQuality(saved.quality); setEncoder(saved.encoder);
   };
 
   const footer = result ? (
@@ -395,7 +424,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
           <div className="grid grid-cols-3 gap-2">
             {[
               ["Canvas", `${dimensions.width}×${dimensions.height}`],
-              ["Duration", formatClock(duration, project.fps)],
+              ["Duration", formatClock(duration, fps)],
               ["Encoder", encoder === "nvenc" ? "NVENC" : "x264 CPU"],
             ].map(([label, value]) => (
               <div key={label} className="rounded-lg border border-line-soft bg-surface-2/50 px-3 py-2.5">
@@ -407,6 +436,9 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
         </div>
       ) : (
         <div className="space-y-5">
+          {savedPresets.length ? <div className="flex flex-wrap items-center gap-1.5" aria-label="Saved export presets">
+            {savedPresets.map((saved) => <button key={saved.name} className="chip" onClick={() => loadPreset(saved)} disabled={exporting}>{saved.name}</button>)}
+          </div> : null}
           <div>
             <span className="label">Size</span>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -440,6 +472,27 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
             <p className="mt-1.5 text-[10px] text-dim">Aspect ratio is applied by fitting your canvas into the chosen size.</p>
           </div>
 
+          <div className="grid grid-cols-3 gap-3">
+            <div><span className="label">Frame rate</span><select className="field" value={fps} onChange={(event) => setFps(Number(event.target.value))} disabled={exporting}>
+              {[...new Set([project.fps, 24, 25, 30, 50, 60])].sort((a, b) => a - b).map((value) => <option key={value} value={value}>{value} fps{value === project.fps ? " · project" : ""}</option>)}
+            </select></div>
+            <div><span className="label">Quality</span><select className="field" value={quality} onChange={(event) => setQuality(event.target.value as Quality)} disabled={exporting}>
+              <option value="draft">Draft · smaller</option><option value="balanced">Balanced</option><option value="high">High · larger</option>
+            </select></div>
+            <div className="rounded-lg border border-line-soft bg-surface-2/50 px-3 py-2">
+              <div className="text-[9.5px] uppercase tracking-wide text-dim">Estimated size</div>
+              <div className="mt-1 font-mono text-[11px]">~{estimateSizeMb(duration, dimensions.width, dimensions.height, quality).toFixed(0)} MB</div>
+            </div>
+          </div>
+          <p className="-mt-3 text-[9.5px] text-dim">Estimate uses frame size and quality. Motion, detail, and audio can change the final size.</p>
+
+          <div className="flex items-center gap-2">
+            <input className="field min-w-0 flex-1" value={presetName} onChange={(event) => setPresetName(event.target.value)} placeholder="Name these settings" disabled={exporting} aria-label="Export preset name" />
+            <button className="btn btn-secondary shrink-0" onClick={savePreset} disabled={!presetName.trim() || exporting}>Save preset</button>
+            {savedPresets.length ? <button className="btn btn-ghost shrink-0" onClick={() => setSavedPresets((items) => { const next = items.filter((item) => item.name !== presetName); localStorage.setItem(SAVED_PRESETS_KEY, JSON.stringify(next)); return next; })} disabled={exporting || !presetName.trim()}>Remove</button> : null}
+          </div>
+          <p className="-mt-3 text-[9.5px] text-dim">Saved on this PC: resolution, frame rate, quality, and encoder.</p>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <span className="label">Encoder</span>
@@ -453,7 +506,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
                 <option value="libx264">x264 · CPU (compatible)</option>
               </select>
               <p className="mt-1 text-[9.5px] text-dim">
-                {hasNvenc ? "GPU encoding is available on this PC." : "No NVIDIA encoder detected; using CPU."}
+                {hasNvenc ? "FFmpeg reports NVENC. It needs a compatible NVIDIA GPU and driver; x264 remains the fallback." : "NVENC was not reported by this FFmpeg build or PC. x264 uses the CPU and is the compatible fallback."}
               </p>
             </div>
             <div className="rounded-xl border border-line-soft bg-surface-2/50 px-3 py-2">
@@ -484,11 +537,12 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
             </div>
           </div>
 
-          {exporting && progress ? (
+          {progress ? (
             <div className="rounded-xl border border-line bg-surface-2/60 p-3.5">
               <div className="mb-2 flex items-center justify-between text-[11px]">
                 <span className="flex items-center gap-1.5 text-muted">
-                  <Loader2 size={12} className="animate-spin text-accent" /> Rendering…
+                  {exporting ? <Loader2 size={12} className="animate-spin text-accent" /> : <CheckCircle2 size={12} className={result ? "text-mint" : "text-dim"} />}
+                  {exporting ? "Rendering…" : result ? "Render finished" : error.toLowerCase().includes("cancel") ? "Render cancelled" : error ? "Render stopped" : "Last render progress"}
                 </span>
                 <span className="font-mono text-[10.5px] text-accent">{progress.percent.toFixed(1)}%</span>
               </div>
@@ -518,6 +572,18 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
               <span className="whitespace-pre-wrap break-words">{error}</span>
             </div>
           ) : null}
+
+          <div className="rounded-lg border border-line-soft bg-surface-2/40 p-3">
+            <button className="flex w-full items-center justify-between text-left text-[11px] font-medium" onClick={() => setDiagnosticsOpen((value) => !value)} aria-expanded={diagnosticsOpen}>
+              <span>Render diagnostics</span><span className="text-dim">{diagnosticsOpen ? "Hide" : "View"}</span>
+            </button>
+            {diagnosticsOpen ? <div className="mt-2 space-y-1.5 text-[10px] leading-relaxed text-dim">
+              <p>{project.assets.filter((asset) => asset.info.fps > 0 && Math.abs(asset.info.fps - project.fps) > 0.05).length} sources report a frame rate different from the project; {project.assets.filter((asset) => asset.info.isVfr).length} are flagged as possibly variable frame rate. Export resamples them to {fps} fps; small seek or sync differences may remain.</p>
+              <p>Project features queued for this render: {project.tracks.reduce((sum, track) => sum + track.clips.filter((clip) => clip.keyframes.length > 0).length, 0)} clips with keyframes, {project.tracks.reduce((sum, track) => sum + track.clips.filter((clip) => clip.transitionIn.type !== "none" || clip.transitionOut.type !== "none").length, 0)} clips with transitions, and {project.tracks.reduce((sum, track) => sum + track.clips.filter((clip) => clip.effect).length, 0)} color-effect clips.</p>
+              <p>Preview uses browser video decoding while export uses FFmpeg, so scaling, color processing, and font rasterization may differ slightly.</p>
+              {project.assets.filter((asset) => asset.info.videoCodec && !["h264", "vp8", "vp9", "av1", "hevc", "mpeg4"].includes(asset.info.videoCodec.toLowerCase())).map((asset) => <p key={asset.id}>{asset.name}: {asset.info.videoCodec} may depend on the installed FFmpeg build.</p>)}
+            </div> : null}
+          </div>
 
           {clipCount === 0 ? (
             <div className="rounded-xl border border-line-soft bg-surface-2/50 p-3 text-[11px] text-dim">

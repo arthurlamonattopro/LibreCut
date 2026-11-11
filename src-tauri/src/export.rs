@@ -263,6 +263,8 @@ pub struct ExportRequest {
     pub effects: Vec<ExportEffect>,
     #[serde(default)]
     pub encoder: Option<String>,
+    #[serde(default)]
+    pub quality: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -1209,7 +1211,12 @@ pub fn build_graph(request: &ExportRequest) -> String {
     lines.join(";\n")
 }
 
-fn encoder_args(encoder: Option<&str>) -> Vec<String> {
+fn encoder_args(encoder: Option<&str>, quality: Option<&str>) -> Vec<String> {
+    let (crf, cq, global_quality, qp) = match quality.unwrap_or("balanced") {
+        "draft" => ("27", "27", "27", "27"),
+        "high" => ("16", "16", "16", "16"),
+        _ => ("20", "20", "22", "20"),
+    };
     match encoder.unwrap_or("libx264") {
         "nvenc" => vec![
             "-c:v".into(),
@@ -1217,7 +1224,7 @@ fn encoder_args(encoder: Option<&str>) -> Vec<String> {
             "-preset".into(),
             "p4".into(),
             "-cq".into(),
-            "20".into(),
+            cq.into(),
             "-b:v".into(),
             "0".into(),
         ],
@@ -1225,7 +1232,7 @@ fn encoder_args(encoder: Option<&str>) -> Vec<String> {
             "-c:v".into(),
             "h264_qsv".into(),
             "-global_quality".into(),
-            "22".into(),
+            global_quality.into(),
         ],
         "amf" => vec![
             "-c:v".into(),
@@ -1235,9 +1242,9 @@ fn encoder_args(encoder: Option<&str>) -> Vec<String> {
             "-rc".into(),
             "cqp".into(),
             "-qp_i".into(),
-            "20".into(),
+            qp.into(),
             "-qp_p".into(),
-            "20".into(),
+            qp.into(),
         ],
         _ => vec![
             "-c:v".into(),
@@ -1245,7 +1252,7 @@ fn encoder_args(encoder: Option<&str>) -> Vec<String> {
             "-preset".into(),
             "veryfast".into(),
             "-crf".into(),
-            "20".into(),
+            crf.into(),
         ],
     }
 }
@@ -1265,6 +1272,14 @@ pub async fn render_with_progress(
     let started = Instant::now();
     let output = PathBuf::from(&request.output);
     ffmpeg::ensure_parent(&output)?;
+    let partial_output = output.with_file_name(format!(
+        ".{}.{}.partial.mp4",
+        output
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("export"),
+        uuid::Uuid::new_v4().simple()
+    ));
 
     let mut export_request = request.clone();
     let mut lut_files = Vec::new();
@@ -1317,7 +1332,10 @@ pub async fn render_with_progress(
     command
         .arg("-t")
         .arg(format!("{:.3}", request.duration.max(0.04)));
-    command.args(encoder_args(request.encoder.as_deref()));
+    command.args(encoder_args(
+        request.encoder.as_deref(),
+        request.quality.as_deref(),
+    ));
     command.args([
         "-pix_fmt",
         "yuv420p",
@@ -1330,7 +1348,7 @@ pub async fn render_with_progress(
         command.args(["-c:a", "aac", "-b:a", "192k", "-ar", "48000"]);
     }
     command.args(["-movflags", "+faststart", "-progress", "pipe:1", "-nostats"]);
-    command.arg(&output);
+    command.arg(&partial_output);
     command
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -1368,7 +1386,7 @@ pub async fn render_with_progress(
         if cancel.load(Ordering::Relaxed) {
             let _ = child.kill().await;
             let _ = stderr_task.await;
-            let _ = std::fs::remove_file(&output);
+            let _ = std::fs::remove_file(&partial_output);
             let _ = std::fs::remove_file(&script_path);
             return Err("Export cancelled.".to_string());
         }
@@ -1399,6 +1417,9 @@ pub async fn render_with_progress(
             }
             Ok(Ok(None)) => break,
             Ok(Err(error)) => {
+                let _ = child.kill().await;
+                let _ = stderr_task.await;
+                let _ = std::fs::remove_file(&partial_output);
                 let _ = std::fs::remove_file(&script_path);
                 return Err(format!("Could not read ffmpeg output: {error}"));
             }
@@ -1409,9 +1430,35 @@ pub async fn render_with_progress(
     let status = child.wait().await.map_err(|e| e.to_string())?;
     let stderr_text = stderr_task.await.unwrap_or_default();
     if !status.success() {
-        let _ = std::fs::remove_file(&output);
+        let _ = std::fs::remove_file(&partial_output);
         let _ = std::fs::remove_file(&script_path);
         return Err(format!("Export failed: {}", ffmpeg::tail(&stderr_text, 10)));
+    }
+
+    // Commit the completed render only after FFmpeg succeeds, so cancellation,
+    // crashes, and encoder errors cannot leave a truncated file at the chosen path.
+    let previous_output = output.with_file_name(format!(
+        ".{}.{}.previous",
+        output
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("export.mp4"),
+        uuid::Uuid::new_v4().simple()
+    ));
+    let had_previous_output = output.exists();
+    if had_previous_output {
+        std::fs::rename(&output, &previous_output)
+            .map_err(|error| format!("Could not preserve the previous export: {error}"))?;
+    }
+    if let Err(error) = std::fs::rename(&partial_output, &output) {
+        if had_previous_output {
+            let _ = std::fs::rename(&previous_output, &output);
+        }
+        let _ = std::fs::remove_file(&partial_output);
+        return Err(format!("Could not finalize the export file: {error}"));
+    }
+    if had_previous_output {
+        let _ = std::fs::remove_file(&previous_output);
     }
 
     on_progress(ExportProgress {

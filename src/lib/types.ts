@@ -69,6 +69,7 @@ export interface MediaInfo {
   width: number;
   height: number;
   fps: number;
+  isVfr?: boolean;
   rotation: number;
   videoCodec: string | null;
   audioCodec: string | null;
@@ -197,6 +198,7 @@ export interface Clip {
   transitionIn: ClipTransition;
   transitionOut: ClipTransition;
   text?: TextOptions;
+  subtitleCue?: boolean;
 }
 
 export interface Track {
@@ -324,6 +326,7 @@ export interface ExportRequest {
   texts: ExportTextRequest[];
   effects: ExportEffectRequest[];
   encoder?: "libx264" | "nvenc" | "qsv" | "amf";
+  quality?: "draft" | "balanced" | "high";
 }
 
 export interface ExportResult {

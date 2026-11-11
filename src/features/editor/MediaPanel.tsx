@@ -79,7 +79,8 @@ export function MediaPanel({ width = 256 }: { width?: number }) {
   const addClip = useEditor((state) => state.addClip);
   const addEffectClip = useEditor((state) => state.addEffectClip);
   const addTextClip = useEditor((state) => state.addTextClip);
-  const { importFromDialog, importing, fileDragOver } = useMediaImport();
+  const importSubtitleCues = useEditor((state) => state.importSubtitleCues);
+  const { importFromDialog, importing, fileDragOver, retryProxy } = useMediaImport();
   const [tab, setTab] = useState<Tab>("media");
   const [query, setQuery] = useState("");
   const [effectQuery, setEffectQuery] = useState("");
@@ -87,6 +88,7 @@ export function MediaPanel({ width = 256 }: { width?: number }) {
   const [plugins, setPlugins] = useState<InstalledEffectPack[]>(loadEffectPacks);
   const [dragPreview, setDragPreview] = useState<DragPreview>(null);
   const pluginFileRef = useRef<HTMLInputElement>(null);
+  const subtitleFileRef = useRef<HTMLInputElement>(null);
 
   const assets = project?.assets ?? [];
   const filtered = useMemo(() => {
@@ -207,7 +209,7 @@ export function MediaPanel({ width = 256 }: { width?: number }) {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {filtered.map((asset) => (
-                    <AssetCard key={asset.id} asset={asset} onAdd={() => addClip(asset.id)} onDragPreview={setDragPreview} />
+                    <AssetCard key={asset.id} asset={asset} onAdd={() => addClip(asset.id)} onDragPreview={setDragPreview} onRetryProxy={() => retryProxy(asset)} onUseOriginal={() => useEditor.getState().replaceAsset(asset.id, { previewMediaId: asset.mediaId })} />
                   ))}
                 </div>
                 <button
@@ -224,6 +226,16 @@ export function MediaPanel({ width = 256 }: { width?: number }) {
 
       {tab === "text" ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-3.5 py-4">
+          <input ref={subtitleFileRef} className="hidden" type="file" accept=".srt,.vtt,text/vtt,application/x-subrip" onChange={async (event) => {
+            const file = event.target.files?.[0]; event.target.value = ""; if (!file) return;
+            try { const cues = parseSubtitle(await file.text()); if (!cues.length) throw new Error("No valid subtitle cues were found."); importSubtitleCues(cues); toast(`Imported ${cues.length} editable subtitle cues.`, "success"); }
+            catch (error) { toast(error instanceof Error ? error.message : "Could not read subtitles.", "error"); }
+          }} />
+          <div className="mb-3 flex gap-2">
+            <button className="btn btn-secondary flex-1" onClick={() => subtitleFileRef.current?.click()}>Import .srt / .vtt</button>
+            <button className="btn btn-secondary flex-1" onClick={() => downloadSubtitles(project?.tracks.flatMap((track) => track.clips).filter((clip) => clip.subtitleCue && clip.text).map((clip) => ({ start: clip.start, end: clip.start + clip.duration, text: clip.text!.text })) ?? [])}>Export .srt</button>
+          </div>
+          <p className="mb-4 text-[9.5px] leading-relaxed text-dim">Imported cues become text clips on the timeline. Edit their wording, timing, and style like any other text clip.</p>
           <button className="btn btn-primary w-full" onClick={() => addTextClip("Your text")}>
             <Plus size={15} /> Add text at playhead
           </button>
@@ -361,6 +373,34 @@ export function MediaPanel({ width = 256 }: { width?: number }) {
   );
 }
 
+function parseSubtitle(contents: string): Array<{ start: number; end: number; text: string }> {
+  const parseTime = (value: string) => {
+    const match = value.trim().match(/^(\d{1,2}:)?\d{2}:\d{2}[,.]\d{3}$|^\d{2}:\d{2}[,.]\d{3}$/);
+    if (!match) return NaN;
+    const [clock, milliseconds] = value.trim().split(/[,.]/);
+    const parts = clock.split(":").map(Number);
+    const seconds = parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts[0] * 60 + parts[1];
+    return seconds + Number(milliseconds) / 1000;
+  };
+  return contents.replace(/^\uFEFF/, "").split(/\r?\n\s*\r?\n/).flatMap((block) => {
+    const lines = block.split(/\r?\n/);
+    const timingIndex = lines.findIndex((line) => line.includes("-->"));
+    if (timingIndex < 0) return [];
+    const [left, right] = lines[timingIndex].split("-->");
+    const start = parseTime(left); const end = parseTime(right.split(/\s+/)[0]);
+    const text = lines.slice(timingIndex + 1).join("\n").trim();
+    return Number.isFinite(start) && Number.isFinite(end) && end > start && text ? [{ start, end, text: text.replace(/<[^>]*>/g, "") }] : [];
+  });
+}
+
+function downloadSubtitles(cues: Array<{ start: number; end: number; text: string }>) {
+  if (!cues.length) { toast("There are no imported subtitle cues to export.", "info"); return; }
+  const timestamp = (time: number) => { const ms = Math.max(0, Math.round(time * 1000)); const h = Math.floor(ms / 3_600_000); const m = Math.floor(ms / 60_000) % 60; const s = Math.floor(ms / 1000) % 60; return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms % 1000).padStart(3, "0")}`; };
+  const body = cues.map((cue, index) => `${index + 1}\n${timestamp(cue.start)} --> ${timestamp(cue.end)}\n${cue.text}`).join("\n\n");
+  const url = URL.createObjectURL(new Blob([body], { type: "text/plain;charset=utf-8" }));
+  const link = document.createElement("a"); link.href = url; link.download = "subtitles.srt"; link.click(); URL.revokeObjectURL(url);
+}
+
 function TabButton({
   active,
   onClick,
@@ -379,7 +419,7 @@ function TabButton({
   );
 }
 
-function AssetCard({ asset, onAdd, onDragPreview }: { asset: Asset; onAdd: () => void; onDragPreview: (preview: DragPreview) => void }) {
+function AssetCard({ asset, onAdd, onDragPreview, onRetryProxy, onUseOriginal }: { asset: Asset; onAdd: () => void; onDragPreview: (preview: DragPreview) => void; onRetryProxy: () => void; onUseOriginal: () => void }) {
   const isAudio = !asset.info.hasVideo && asset.info.hasAudio;
   const thumbnail = asset.thumbnails[0];
 
@@ -489,6 +529,9 @@ function AssetCard({ asset, onAdd, onDragPreview }: { asset: Asset; onAdd: () =>
               ? `${asset.info.width}×${asset.info.height}`
               : `${asset.info.audioChannels}ch · ${Math.round(asset.info.sampleRate / 1000)} kHz`}
         </div>
+        {asset.info.isVfr ? <div className="mt-1 text-[9px] text-amber" title="Variable frame rate may affect seeking or audio sync">Possible variable frame rate · export normalizes</div> : null}
+        {asset.proxyStatus === "failed" ? <button className="mt-1 text-[9px] text-amber hover:text-ink" onClick={(event) => { event.stopPropagation(); onRetryProxy(); }}>Proxy failed · Retry</button> : null}
+        {asset.proxyStatus === "ready" && asset.previewMediaId === asset.proxyId ? <button className="mt-1 text-[9px] text-dim hover:text-ink" onClick={(event) => { event.stopPropagation(); onUseOriginal(); }}>Preview original</button> : null}
       </div>
     </div>
   );

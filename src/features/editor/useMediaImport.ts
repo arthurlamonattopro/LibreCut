@@ -17,6 +17,20 @@ const SUPPORTED = new Set([
   "mp3", "wav", "m4a", "aac", "flac", "ogg",
   "png", "jpg", "jpeg", "webp", "bmp", "gif", "avif",
 ]);
+const proxyQueue: Array<() => void> = [];
+let runningProxies = 0;
+function queuedProxy(path: string, height: number): Promise<Awaited<ReturnType<typeof createProxy>>> {
+  return new Promise((resolve, reject) => {
+    proxyQueue.push(() => {
+      runningProxies += 1;
+      void createProxy(path, height).then(resolve, reject).finally(() => {
+        runningProxies -= 1;
+        proxyQueue.shift()?.();
+      });
+    });
+    if (runningProxies < 2 && proxyQueue.length) proxyQueue.shift()?.();
+  });
+}
 
 function extensionOf(path: string): string {
   return path.split(".").pop()?.toLowerCase() ?? "";
@@ -42,6 +56,15 @@ export function useMediaImport() {
   const [fileDragOver, setFileDragOver] = useState(false);
   const importPathsRef = useRef<(paths: string[]) => Promise<void>>(async () => undefined);
   const importingPathsRef = useRef(new Set<string>());
+  const retryProxy = useCallback((asset: Asset) => {
+    replaceAsset(asset.id, { proxyStatus: "generating" });
+    void queuedProxy(asset.path, asset.info.height > 2160 ? 720 : 1080).then((proxy) => {
+      replaceAsset(asset.id, { proxyId: proxy.id, previewMediaId: proxy.id, proxyStatus: "ready" });
+    }).catch((error) => {
+      replaceAsset(asset.id, { proxyStatus: "failed" });
+      toast(`Proxy failed for ${asset.name}. Retry or continue with the original source. ${error instanceof Error ? error.message : String(error)}`, "error");
+    });
+  }, [replaceAsset]);
 
   const importPaths = useCallback(
     async (paths: string[]) => {
@@ -49,6 +72,7 @@ export function useMediaImport() {
         (useEditor.getState().project?.assets ?? []).map((asset) => pathKey(asset.path)),
       );
       const supported = paths.filter((path) => SUPPORTED.has(extensionOf(path)));
+      const unsupported = paths.filter((path) => !SUPPORTED.has(extensionOf(path)));
       const usable = [...new Map(supported
         .map((path) => [pathKey(path), path] as const)).values()]
         .filter((path) => {
@@ -58,12 +82,15 @@ export function useMediaImport() {
           return true;
         });
       if (usable.length === 0) {
-        if (paths.length > 0 && supported.length === 0) toast("No supported media files were found.", "error");
+        if (unsupported.length) toast(`Unsupported format${unsupported.length > 1 ? "s" : ""}: ${unsupported.map((path) => path.split(/[\\/]/).pop()).slice(0, 3).join(", ")}. Supported: MP4, MOV, WebM, MKV, AVI, common audio, and image files. Import subtitles from the Text tab.`, "error");
         return;
       }
       setImporting((value) => value + usable.length);
-
-      for (const path of usable) {
+      if (unsupported.length) toast(`Skipped unsupported files: ${unsupported.map((path) => path.split(/[\\/]/).pop()).slice(0, 3).join(", ")}. Subtitle files can be imported from the Text tab.`, "info");
+      let nextPath = 0;
+      await Promise.all(Array.from({ length: Math.min(3, usable.length) }, async () => {
+        while (nextPath < usable.length) {
+          const path = usable[nextPath++];
         try {
           const registered = await registerMedia(path);
           const info = registered.info;
@@ -89,40 +116,35 @@ export function useMediaImport() {
 
           if (needsProxy(info)) {
             replaceAsset(asset.id, { proxyStatus: "generating" });
-            createProxy(path, info.height > 2160 ? 720 : 1080)
-              .then((proxy) => {
-                replaceAsset(asset.id, {
-                  proxyId: proxy.id,
-                  previewMediaId: proxy.id,
-                  proxyStatus: "ready",
-                });
-                toast(`Preview proxy ready for ${info.name}`, "info");
-              })
-              .catch((error) => {
-                replaceAsset(asset.id, { proxyStatus: "failed" });
-                toast(
-                  `Proxy failed for ${info.name}. Preview may be slower. ${
-                    error instanceof Error ? error.message : ""
-                  }`,
-                  "error",
-                );
-              });
+            retryProxy(asset);
           }
         } catch (error) {
+          const details = error instanceof Error ? error.message : String(error);
+          const diagnosis = /probe|decode|invalid data|moov atom|corrupt|stream/i.test(details)
+            ? " The file may be damaged or use a codec this FFmpeg build cannot read. Try remuxing or transcoding it to H.264 MP4."
+            : " Check that the file exists and is readable.";
           toast(
             `Could not import ${path.split(/[\\/]/).pop() ?? "file"}: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
+              details
+            }${diagnosis}`,
             "error",
           );
         } finally {
           importingPathsRef.current.delete(pathKey(path));
           setImporting((value) => Math.max(0, value - 1));
         }
-      }
+        }
+      }));
     },
-    [addAsset, replaceAsset],
+    [addAsset, replaceAsset, retryProxy],
   );
+
+  useEffect(() => {
+    // A persisted `generating` flag means the app closed before the background job completed.
+    for (const asset of useEditor.getState().project?.assets ?? []) {
+      if (asset.proxyStatus === "generating") retryProxy(asset);
+    }
+  }, [retryProxy]);
 
   importPathsRef.current = importPaths;
 
@@ -170,5 +192,5 @@ export function useMediaImport() {
     await importPaths(paths);
   }, [importPaths]);
 
-  return { importPaths, importFromDialog, importing, fileDragOver };
+  return { importPaths, importFromDialog, importing, fileDragOver, retryProxy };
 }
