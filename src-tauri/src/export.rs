@@ -998,7 +998,7 @@ pub fn build_graph(request: &ExportRequest) -> String {
                     (count * size * 0.6 + text.character_spacing * count).max(1.0);
                 let anchor_x = format!("w*({x_expr})");
                 let underline_x = match align {
-                    "left" => format!("{anchor_x}"),
+                    "left" => anchor_x.to_string(),
                     "right" => format!("{anchor_x}-{underline_width:.2}"),
                     _ => format!("{anchor_x}-{:.2}", underline_width / 2.0),
                 };

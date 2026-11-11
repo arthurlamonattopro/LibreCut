@@ -219,6 +219,7 @@ fn request(output: &Path, clips: Vec<ExportClip>, duration: f64) -> ExportReques
             mask_x: 0.5,
             mask_y: 0.5,
             mask_size: 0.5,
+            lut: None,
         }],
         encoder: Some("libx264".to_string()),
     }
