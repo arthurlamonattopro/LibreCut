@@ -16,6 +16,7 @@ import {
   Trash2,
   Type,
   Upload,
+  WandSparkles,
 } from "lucide-react";
 import { useEditor } from "../../stores/editor";
 import { mediaUrl, removeProxyCache } from "../../lib/media";
@@ -74,7 +75,7 @@ const TEXT_PRESETS: Array<{ label: string; sample: string; size: string; values?
   { label: "Caption", sample: "Add a caption", size: "text-[12px] font-medium text-white/80" },
 ];
 
-export function MediaPanel({ width = 256 }: { width?: number }) {
+export function MediaPanel({ width = 256, onOpenAi }: { width?: number; onOpenAi: (tool: "speech" | "background", imageId?: string) => void }) {
   const project = useEditor((state) => state.project);
   const addClip = useEditor((state) => state.addClip);
   const addEffectClip = useEditor((state) => state.addEffectClip);
@@ -209,7 +210,7 @@ export function MediaPanel({ width = 256 }: { width?: number }) {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {filtered.map((asset) => (
-                    <AssetCard key={asset.id} asset={asset} onAdd={() => addClip(asset.id)} onDragPreview={setDragPreview} onRetryProxy={() => retryProxy(asset)} onUseOriginal={() => useEditor.getState().replaceAsset(asset.id, { previewMediaId: asset.mediaId })} onCleanupProxy={async () => {
+                    <AssetCard key={asset.id} asset={asset} onAdd={() => addClip(asset.id)} onDragPreview={setDragPreview} onRetryProxy={() => retryProxy(asset)} onRemoveBackground={() => onOpenAi("background", asset.id)} onUseOriginal={() => useEditor.getState().replaceAsset(asset.id, { previewMediaId: asset.mediaId })} onCleanupProxy={async () => {
                       if (!asset.proxyId) return;
                       try { await removeProxyCache(asset.proxyId); useEditor.getState().replaceAsset(asset.id, { proxyId: undefined, previewMediaId: asset.mediaId, proxyStatus: "none" }); toast("Cached proxy removed. The original is used for preview.", "success"); }
                       catch (error) { toast(error instanceof Error ? error.message : "Could not remove the cached proxy.", "error"); }
@@ -230,6 +231,7 @@ export function MediaPanel({ width = 256 }: { width?: number }) {
 
       {tab === "text" ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-3.5 py-4">
+          <button className="btn btn-secondary mb-3 w-full" onClick={() => onOpenAi("speech")}><AudioLines size={14} /> Text to speech</button>
           <input ref={subtitleFileRef} className="hidden" type="file" accept=".srt,.vtt,text/vtt,application/x-subrip" onChange={async (event) => {
             const file = event.target.files?.[0]; event.target.value = ""; if (!file) return;
             try { const cues = parseSubtitle(await file.text()); if (!cues.length) throw new Error("No valid subtitle cues were found."); importSubtitleCues(cues); toast(`Imported ${cues.length} editable subtitle cues.`, "success"); }
@@ -423,7 +425,7 @@ function TabButton({
   );
 }
 
-function AssetCard({ asset, onAdd, onDragPreview, onRetryProxy, onUseOriginal, onCleanupProxy }: { asset: Asset; onAdd: () => void; onDragPreview: (preview: DragPreview) => void; onRetryProxy: () => void; onUseOriginal: () => void; onCleanupProxy: () => Promise<void> }) {
+function AssetCard({ asset, onAdd, onDragPreview, onRetryProxy, onRemoveBackground, onUseOriginal, onCleanupProxy }: { asset: Asset; onAdd: () => void; onDragPreview: (preview: DragPreview) => void; onRetryProxy: () => void; onRemoveBackground: () => void; onUseOriginal: () => void; onCleanupProxy: () => Promise<void> }) {
   const isAudio = !asset.info.hasVideo && asset.info.hasAudio;
   const thumbnail = asset.thumbnails[0];
 
@@ -526,6 +528,7 @@ function AssetCard({ asset, onAdd, onDragPreview, onRetryProxy, onUseOriginal, o
         <div className="truncate text-[10.5px] font-medium leading-tight" title={asset.name}>
           {asset.name}
         </div>
+        {asset.info.isImage ? <button className="mt-1 flex items-center gap-1 text-[9px] text-accent hover:text-ink" onClick={(event) => { event.stopPropagation(); onRemoveBackground(); }}><WandSparkles size={10} /> Remove background</button> : null}
         <div className="mt-0.5 truncate text-[9.5px] text-dim">
           {asset.info.isImage
             ? "Still image"

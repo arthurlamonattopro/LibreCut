@@ -12,6 +12,7 @@ type Workspace = "local" | "cloud";
 type LocalTool = "captions" | "speech" | "background";
 type CloudTool = "captions" | "speech";
 type CaptionSource = "timeline" | "asset";
+export type AiStudioTool = LocalTool;
 
 const LANGUAGES = [
   { code: "en", whisper: "english", label: "English" },
@@ -38,7 +39,7 @@ function progressText(progress: ModelProgress | null) {
   return "Preparing local model…";
 }
 
-export function AiStudio({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function AiStudio({ open, onClose, initialTool, initialImageId }: { open: boolean; onClose: () => void; initialTool?: AiStudioTool; initialImageId?: string }) {
   const project = useEditor((state) => state.project);
   const selectedClipId = useEditor((state) => state.selectedClipId);
   const timelineVideo = useMemo(() => {
@@ -74,6 +75,13 @@ export function AiStudio({ open, onClose }: { open: boolean; onClose: () => void
   const [strictOffline, setStrictOfflineState] = useState(() => isStrictOffline());
   const [checkingModels, setCheckingModels] = useState(false);
   const addAsset = useEditor((state) => state.addAsset);
+
+  useEffect(() => {
+    if (!open || !initialTool) return;
+    setWorkspace("local");
+    setLocalTool(initialTool);
+    if (initialImageId) setImageId(initialImageId);
+  }, [open, initialTool, initialImageId]);
 
   const refreshOfflineModels = async () => {
     setCheckingModels(true);

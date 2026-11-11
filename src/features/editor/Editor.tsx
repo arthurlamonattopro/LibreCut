@@ -17,6 +17,8 @@ export function Editor({ onBack }: { onBack: () => void }) {
   const markSaved = useEditor((state) => state.markSaved);
   const [exportOpen, setExportOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [aiTool, setAiTool] = useState<"captions" | "speech" | "background">("captions");
+  const [aiImageId, setAiImageId] = useState<string | undefined>();
   const [saving, setSaving] = useState(false);
   const [mediaWidth, setMediaWidth] = useState(() => Number(localStorage.getItem("librecut:media-width")) || 256);
   const [inspectorWidth, setInspectorWidth] = useState(() => Number(localStorage.getItem("librecut:inspector-width")) || 280);
@@ -65,7 +67,7 @@ export function Editor({ onBack }: { onBack: () => void }) {
   }, []);
 
   useEffect(() => {
-    if (project) document.title = `${project.name} — LibreCut`;
+    if (project) document.title = `${project.name} ÔÇö LibreCut`;
     return () => {
       document.title = "LibreCut";
     };
@@ -185,7 +187,7 @@ export function Editor({ onBack }: { onBack: () => void }) {
     <div className="flex h-full flex-col overflow-hidden bg-surface">
       <TopBar onBack={goBack} onExport={() => setExportOpen(true)} onSaveCopy={() => void saveCopy()} onAiTools={() => setAiOpen(true)} saving={saving} />
       <div className="flex min-h-0 flex-1">
-        <MediaPanel width={mediaWidth} />
+        <MediaPanel width={mediaWidth} onOpenAi={(tool, imageId) => { setAiTool(tool); setAiImageId(imageId); setAiOpen(true); }} />
         <ResizeHandle axis="x" onResize={(delta) => setMediaWidth((value) => Math.max(180, Math.min(480, value + delta)))} onCommit={(value) => localStorage.setItem("librecut:media-width", String(value))} value={mediaWidth} />
         <Preview />
         <ResizeHandle axis="x" reverse onResize={(delta) => setInspectorWidth((value) => Math.max(220, Math.min(480, value + delta)))} onCommit={(value) => localStorage.setItem("librecut:inspector-width", String(value))} value={inspectorWidth} />
@@ -194,7 +196,7 @@ export function Editor({ onBack }: { onBack: () => void }) {
       <ResizeHandle axis="y" reverse onResize={(delta) => setTimelineHeight((value) => Math.max(180, Math.min(620, value + delta)))} onCommit={(value) => localStorage.setItem("librecut:timeline-height", String(value))} value={timelineHeight} />
       <Timeline height={timelineHeight} />
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
-      <AiStudio open={aiOpen} onClose={() => setAiOpen(false)} />
+      <AiStudio open={aiOpen} onClose={() => setAiOpen(false)} initialTool={aiTool} initialImageId={aiImageId} />
     </div>
   );
 }
