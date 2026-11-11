@@ -60,11 +60,30 @@ What landed in v0.2:
 
 - [x] Color adjustments and a searchable effect preset browser
 - [x] JSON effect-pack plugins
-- [ ] LUT import and application
-- [ ] Templates
-- [ ] Broader plugin API for additional editor extension points
-- [ ] Auto-update (opt-in)
+- [x] LUT import and application
+  - [x] Support importing `.cube` LUT files and validate malformed or unsupported files
+  - [x] Add a LUT effect that can be applied to clips and adjusted in the inspector
+  - [x] Include LUT settings in project save/load and rendered exports
+- [x] Templates
+  - [x] Define and validate a versioned, media-free project template format
+  - [x] Add built-in landscape, vertical, and square starter templates to project creation
+  - [x] Create an editable project from the selected template
+  - [x] Add template previews and support creating, importing, and exporting custom templates
+- [x] Broader plugin API for additional editor extension points
+  - [x] Define and document stable plugin interfaces and version compatibility
+  - [x] Add extension points for editor areas beyond effect packs
+  - [x] Add plugin permissions, lifecycle handling, and clear failure reporting
+  - [x] Provide an example plugin and validate install, enable, disable, and removal
+- [x] Auto-update (opt-in)
+  - [x] Add an opt-in setting and show the current and available versions
+  - [x] Check for updates and present release notes before installation
+  - [x] Download, verify, and install updates with recovery from interrupted updates
+  - [x] Document update channels and how to disable update checks
 - [ ] macOS and Linux builds
+  - [x] Set up macOS and Linux build and packaging workflows (Intel macOS DMG; Ubuntu 22.04 x64 DEB/AppImage)
+  - [x] Implement platform-specific media, filesystem, and installer integration (native Tauri dialogs/protocols and case-aware media path matching)
+  - [x] Package FFmpeg and required runtime dependencies for each platform (static FFmpeg/ffprobe sidecars)
+  - [ ] Verify install, launch, project editing, and export on supported systems
 
 ## v1.0 — release quality
 

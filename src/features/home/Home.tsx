@@ -5,6 +5,8 @@ import {
   FolderOpen,
   Github,
   Info,
+  Download,
+  Upload,
   LayoutGrid,
   Plus,
   RefreshCw,
@@ -15,12 +17,28 @@ import { Modal } from "../../components/Modal";
 import { Logo } from "../../components/Logo";
 import { toast } from "../../components/Toast";
 import { createProject, deleteProject, listProjects, loadProject as loadProjectById, persistProject } from "../../stores/projects";
-import { getRuntimeStatus, loadProjectFile, pickProjectToOpen } from "../../lib/media";
+import { getRuntimeStatus, loadProjectFile, pickProjectToOpen, saveProjectFile } from "../../lib/media";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { getVersion } from "@tauri-apps/api/app";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { hasSeenFirstRun, markFirstRunSeen } from "../../lib/firstRun";
 import { normalizeProject } from "../../lib/project";
 import { formatDuration, formatRelativeDate } from "../../lib/time";
 import type { Project, ProjectSummary, RuntimeStatus } from "../../lib/types";
 import { FirstRun } from "./FirstRun";
+import { BUILT_IN_TEMPLATES, createProjectFromTemplate, parseProjectTemplate, type ProjectTemplate } from "../../lib/templates";
+
+const TEMPLATE_STORAGE_KEY = "librecut.customTemplates.v1";
+const AUTO_UPDATE_KEY = "librecut.autoUpdate.v1";
+const AUTO_UPDATE_ENABLED = "enabled";
+function readAutoUpdatePreference(): boolean {
+  try { return localStorage.getItem(AUTO_UPDATE_KEY) === AUTO_UPDATE_ENABLED; } catch { return false; }
+}
+function readCustomTemplates(): ProjectTemplate[] {
+  try { const value = JSON.parse(localStorage.getItem(TEMPLATE_STORAGE_KEY) ?? "[]"); return Array.isArray(value) ? value.map(parseProjectTemplate) : []; }
+  catch { return []; }
+}
 
 interface HomeProps {
   onOpenProject: (project: Project) => void;
@@ -63,6 +81,14 @@ export function Home({ onOpenProject }: HomeProps) {
   const [firstRunOpen, setFirstRunOpen] = useState(false);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [checkingRuntime, setCheckingRuntime] = useState(false);
+  const [autoUpdate, setAutoUpdate] = useState(readAutoUpdatePreference);
+  const [appVersion, setAppVersion] = useState("0.1.0");
+  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState("");
+  const [updateStatus, setUpdateStatus] = useState("");
+  const [customTemplates, setCustomTemplates] = useState<ProjectTemplate[]>(readCustomTemplates);
 
   const refresh = () => setProjects(listProjects());
 
@@ -85,6 +111,60 @@ export function Home({ onOpenProject }: HomeProps) {
       setFirstRunOpen(true);
     }
   }, []);
+
+  useEffect(() => {
+    void getVersion().then(setAppVersion).catch(() => undefined);
+  }, []);
+
+  const checkForUpdates = async () => {
+    if (checkingUpdate) return;
+    setCheckingUpdate(true);
+    setUpdateStatus("");
+    try {
+      const update = await check();
+      setAvailableUpdate(update);
+      setUpdateStatus(update ? "An update is ready to review." : "You're up to date.");
+    } catch (error) {
+      setUpdateStatus(`Update check failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
+  useEffect(() => {
+    if (autoUpdate) void checkForUpdates();
+    // The preference is the only trigger; checking is protected in the callback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoUpdate]);
+
+  const toggleAutoUpdate = (enabled: boolean) => {
+    setAutoUpdate(enabled);
+    try {
+      if (enabled) localStorage.setItem(AUTO_UPDATE_KEY, AUTO_UPDATE_ENABLED);
+      else localStorage.removeItem(AUTO_UPDATE_KEY);
+    } catch { /* Keep this preference best-effort if storage is unavailable. */ }
+    if (!enabled) {
+      setAvailableUpdate(null);
+      setUpdateStatus("Automatic update checks are off.");
+    }
+  };
+
+  const installUpdate = async () => {
+    if (!availableUpdate || installingUpdate) return;
+    setInstallingUpdate(true);
+    setUpdateProgress("Preparing update…");
+    try {
+      await availableUpdate.downloadAndInstall((event) => {
+        if (event.event === "Started") setUpdateProgress("Downloading update…");
+        if (event.event === "Progress") setUpdateProgress("Downloading and verifying update…");
+        if (event.event === "Finished") setUpdateProgress("Update installed. Restarting…");
+      });
+      await relaunch();
+    } catch (error) {
+      setUpdateProgress(`Update failed: ${error instanceof Error ? error.message : String(error)}. Your current installation is unchanged.`);
+      setInstallingUpdate(false);
+    }
+  };
 
   useEffect(() => {
     if (firstRunOpen || settingsOpen) void refreshRuntime();
@@ -111,13 +191,30 @@ export function Home({ onOpenProject }: HomeProps) {
     onOpenProject(project);
   };
 
-  const handleCreate = (name: string, aspect: Aspect, resolution: Resolution, fps: number) => {
+  const handleCreate = (name: string, aspect: Aspect, resolution: Resolution, fps: number, template?: ProjectTemplate) => {
     const { width, height } = dimensions(aspect, resolution);
-    const project = createProject(name, width, height, fps);
+    const project = template ? createProjectFromTemplate(template, name) : createProject(name, width, height, fps);
     persistProject(project);
     setNewOpen(false);
     onOpenProject(project);
   };
+
+  const importTemplate = async () => {
+    try {
+      const path = await openDialog({ multiple: false, directory: false, filters: [{ name: "LibreCut template", extensions: ["librectemplate", "json"] }] });
+      if (typeof path !== "string") return;
+      const item = parseProjectTemplate(JSON.parse(await loadProjectFile(path)));
+      const next = [...customTemplates.filter((t) => t.name !== item.name), item];
+      localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(next)); setCustomTemplates(next); toast(`Imported template “${item.name}”.`, "success");
+    } catch (error) { toast(error instanceof Error ? error.message : "Could not import template.", "error"); }
+  };
+  const exportTemplate = async (template: ProjectTemplate) => {
+    try {
+      const path = await saveDialog({ defaultPath: `${template.name.replace(/[\\/:*?"<>|]/g, "-")}.librectemplate`, filters: [{ name: "LibreCut template", extensions: ["librectemplate"] }] });
+      if (path) { await saveProjectFile(path, JSON.stringify(template, null, 2)); toast("Template exported.", "success"); }
+    } catch (error) { toast(error instanceof Error ? error.message : "Could not export template.", "error"); }
+  };
+  const saveCustomTemplate = (template: ProjectTemplate) => { const next = [...customTemplates.filter((t) => t.name !== template.name), template]; localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(next)); setCustomTemplates(next); toast("Custom template saved.", "success"); };
 
   const handleOpenFile = async () => {
     try {
@@ -176,7 +273,7 @@ export function Home({ onOpenProject }: HomeProps) {
           <button className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] text-muted transition hover:bg-white/5 hover:text-ink" onClick={() => setSettingsOpen(true)}>
             <Settings size={14} /> Settings
           </button>
-          <div className="px-2.5 pb-1 pt-2 text-[10px] text-dim">v0.1.0</div>
+          <div className="px-2.5 pb-1 pt-2 text-[10px] text-dim">v{appVersion}</div>
         </div>
       </aside>
 
@@ -255,7 +352,7 @@ export function Home({ onOpenProject }: HomeProps) {
         onCreate={startFromFirstRun}
       />
 
-      <NewProjectModal open={newOpen} onClose={() => setNewOpen(false)} onCreate={handleCreate} />
+      <NewProjectModal open={newOpen} onClose={() => setNewOpen(false)} onCreate={handleCreate} customTemplates={customTemplates} onImportTemplate={importTemplate} onExportTemplate={exportTemplate} onSaveCustomTemplate={saveCustomTemplate} />
 
       <Modal
         open={Boolean(deleteTarget)}
@@ -320,8 +417,33 @@ export function Home({ onOpenProject }: HomeProps) {
           <div className="rounded-xl border border-line-soft bg-surface-2/50 p-4">
             <div className="text-[12.5px] font-medium">Privacy</div>
             <p className="mt-1 text-[11.5px] leading-relaxed text-dim">
-              No accounts, analytics, cloud uploads, or network requests. Media is processed by the bundled FFmpeg runtime on your machine.
+              No accounts, analytics, or cloud uploads. Media is processed by the bundled FFmpeg runtime on your machine. Update checks only contact GitHub when enabled.
             </p>
+          </div>
+          <div className="rounded-xl border border-line-soft bg-surface-2/50 p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-[12.5px] font-medium">Application updates</div>
+                <p className="mt-1 text-[11.5px] leading-relaxed text-dim">Current version: <span className="font-mono">{appVersion}</span>. Stable releases are checked from GitHub only when enabled.</p>
+              </div>
+              <label className="flex shrink-0 items-center gap-2 text-[11px] text-muted">
+                <input type="checkbox" checked={autoUpdate} onChange={(event) => toggleAutoUpdate(event.target.checked)} aria-label="Enable automatic update checks" />
+                Check automatically
+              </label>
+            </div>
+            {availableUpdate ? (
+              <div className="mt-3 rounded-lg border border-line-soft bg-panel/70 p-3">
+                <div className="text-[12px] font-medium">Version {availableUpdate.version} is available</div>
+                <div className="mt-2 max-h-36 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-muted">{availableUpdate.body?.trim() || "No release notes were provided."}</div>
+                <button className="btn btn-primary btn-sm mt-3" onClick={() => void installUpdate()} disabled={installingUpdate}>
+                  <Download size={12} /> {installingUpdate ? updateProgress || "Installing…" : "Download and install"}
+                </button>
+              </div>
+            ) : null}
+            {updateStatus || updateProgress ? <p className="mt-2 text-[10.5px] leading-relaxed text-dim" role="status">{updateProgress || updateStatus}</p> : null}
+            <button className="btn btn-ghost btn-sm mt-2" onClick={() => void checkForUpdates()} disabled={checkingUpdate || installingUpdate}>
+              <RefreshCw size={12} className={checkingUpdate ? "animate-spin" : ""} /> {checkingUpdate ? "Checking…" : "Check for updates"}
+            </button>
           </div>
           <button className="btn btn-danger w-full" onClick={() => setClearOpen(true)}>
             <Trash2 size={14} /> Clear all local projects
@@ -352,7 +474,7 @@ export function Home({ onOpenProject }: HomeProps) {
           <div className="flex items-center gap-3">
             <Logo size={44} />
             <div>
-              <div className="text-[15px] font-semibold">LibreCut 0.1.0</div>
+              <div className="text-[15px] font-semibold">LibreCut {appVersion}</div>
               <div className="text-[11.5px] text-dim">A local-first video editor for Windows</div>
             </div>
           </div>
@@ -404,15 +526,25 @@ function NewProjectModal({
   open,
   onClose,
   onCreate,
+  customTemplates,
+  onImportTemplate,
+  onExportTemplate,
+  onSaveCustomTemplate,
 }: {
   open: boolean;
   onClose: () => void;
-  onCreate: (name: string, aspect: Aspect, resolution: Resolution, fps: number) => void;
+  onCreate: (name: string, aspect: Aspect, resolution: Resolution, fps: number, template?: ProjectTemplate) => void;
+  customTemplates: ProjectTemplate[];
+  onImportTemplate: () => void;
+  onExportTemplate: (template: ProjectTemplate) => void;
+  onSaveCustomTemplate: (template: ProjectTemplate) => void;
 }) {
   const [name, setName] = useState("Untitled project");
   const [aspect, setAspect] = useState<Aspect>("16:9");
   const [resolution, setResolution] = useState<Resolution>("1080");
   const [fps, setFps] = useState(30);
+  const [template, setTemplate] = useState<ProjectTemplate | null>(null);
+  const [customName, setCustomName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -421,6 +553,7 @@ function NewProjectModal({
       setAspect("16:9");
       setResolution("1080");
       setFps(30);
+      setTemplate(null);
       window.setTimeout(() => inputRef.current?.select(), 80);
     }
   }, [open]);
@@ -437,13 +570,20 @@ function NewProjectModal({
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={() => onCreate(name, aspect, resolution, fps)}>
+          <button className="btn btn-primary" onClick={() => onCreate(name, aspect, resolution, fps, template ?? undefined)}>
             <Plus size={15} /> Create project
           </button>
         </>
       }
     >
       <div className="space-y-5">
+        <div>
+          <span className="label">Start from template</span>
+          <div className="mb-2 flex gap-2"><button className="btn btn-ghost" type="button" onClick={onImportTemplate}><Upload size={13}/> Import</button><input className="field min-w-0 flex-1" placeholder="Custom template name" value={customName} onChange={(e) => setCustomName(e.target.value)} /><button className="btn btn-ghost" type="button" disabled={!customName.trim()} onClick={() => { const d = dimensions(aspect, resolution); const item = parseProjectTemplate({ formatVersion: 1, name: customName.trim(), description: `${aspect} canvas · ${resolution}p · ${fps} fps`, ...d, fps, tracks: [] }); onSaveCustomTemplate(item); setTemplate(item); setCustomName(""); }}>Save</button></div>
+          <div className="grid grid-cols-3 gap-2">
+            {[...BUILT_IN_TEMPLATES, ...customTemplates].map((item) => <button key={item.name} type="button" className={`rounded-lg border p-2 text-left text-[10px] ${template?.name === item.name ? "border-accent bg-accent-soft" : "border-line bg-surface-2/50"}`} onClick={() => { setTemplate(item); setAspect(item.width > item.height ? "16:9" : item.width === item.height ? "1:1" : "9:16"); setResolution((item.height >= 2000 || item.width >= 2000 ? "2160" : item.height >= 1400 || item.width >= 1400 ? "1440" : "1080")); setFps(item.fps); }}><span className="flex items-center justify-between font-medium">{item.name}{customTemplates.includes(item) && <span role="button" title="Export template" onClick={(e) => { e.stopPropagation(); onExportTemplate(item); }}><Download size={12}/></span>}</span><span className="mt-1 block text-dim">{item.description}</span><span className="mt-2 flex h-9 items-center justify-center rounded bg-black/20"><span className="block border border-accent/60 bg-accent/10" style={{ width: `${Math.max(12, 60 * item.width / Math.max(item.width, item.height))}px`, height: `${Math.max(12, 34 * item.height / Math.max(item.width, item.height))}px` }}/></span><span className="mt-1 block text-dim">{item.width} × {item.height} · {item.fps} fps</span></button>)}
+          </div>
+        </div>
         <div>
           <label className="label" htmlFor="project-name">Project name</label>
           <input

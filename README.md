@@ -126,7 +126,7 @@ More detail: [docs/architecture.md](docs/architecture.md) and [docs/project-form
 
 ## Privacy
 
-LibreCut makes no unsolicited network requests. Media never leaves the machine. Local AI models contact Hugging Face only when a model is missing from the local bundle and strict offline mode is off. There is no analytics, account system, or cloud dependency. See [PRIVACY.md](PRIVACY.md).
+Media never leaves the machine. Local AI models contact Hugging Face only when a model is missing from the local bundle and strict offline mode is off. There is no analytics, account system, or cloud dependency. Stable-release update checks are opt-in in Settings and contact this project's GitHub Releases only when enabled. See [PRIVACY.md](PRIVACY.md).
 
 ## License
 

@@ -192,7 +192,7 @@ function buildRequest(
   const effects: ExportEffectRequest[] = project.tracks
     .filter((track) => track.kind === "misc" && !track.hidden)
     .flatMap((track) => track.clips.filter((clip) => clip.effect).map((clip) => ({
-      ...clip.effect!, start: clip.start, duration: clip.duration, opacity: clip.opacity,
+      ...clip.effect!, start: clip.start, duration: clip.duration, opacity: clip.opacity, lut: clip.lut,
     })));
   const texts = project.tracks
     .filter((track) => track.kind === "text" && !track.hidden)

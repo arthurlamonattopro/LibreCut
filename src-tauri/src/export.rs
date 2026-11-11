@@ -234,6 +234,19 @@ pub struct ExportEffect {
     pub mask_x: f64,
     pub mask_y: f64,
     pub mask_size: f64,
+    #[serde(default)]
+    pub lut: Option<ExportLut>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportLut {
+    pub title: String,
+    pub size: usize,
+    pub cube_text: String,
+    pub strength: f64,
+    #[serde(default)]
+    pub lut_path: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -801,7 +814,13 @@ pub fn build_graph(request: &ExportRequest) -> String {
         };
         let alpha = format!("{:.3}*{fade_in}*{fade_out}", effect.opacity.clamp(0.0, 1.0));
         lines.push(format!("[{base}]split[{original}][{from}]"));
-        lines.push(format!("[{from}]eq=brightness={:.4}:contrast={:.4}:saturation={:.4},hue=h={:.3},colorchannelmixer=rr={rr:.4}:rg={rg:.4}:rb={rb:.4}:gr={gr:.4}:gg={gg:.4}:gb={gb:.4}:br={br:.4}:bg={bg:.4}:bb={bb:.4}{blur}{vignette}{motion_blur},format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({alpha})'{mask}[{filtered}]",
+        let lut_filter = effect.lut.as_ref().and_then(|lut| lut.lut_path.as_deref()).map(|path| {
+            let path = path.replace('\\', "/").replace(':', "\\:").replace('\'', "\\'");
+            format!(",lut3d=file='{path}':interp=tetrahedral")
+        }).unwrap_or_default();
+        let effect_strength = effect.lut.as_ref().map(|lut| lut.strength.clamp(0.0, 1.0)).unwrap_or(1.0);
+        let combined_alpha = format!("({alpha})*{effect_strength:.3}");
+        lines.push(format!("[{from}]eq=brightness={:.4}:contrast={:.4}:saturation={:.4},hue=h={:.3},colorchannelmixer=rr={rr:.4}:rg={rg:.4}:rb={rb:.4}:gr={gr:.4}:gg={gg:.4}:gb={gb:.4}:br={br:.4}:bg={bg:.4}:bb={bb:.4}{blur}{vignette}{motion_blur}{lut_filter},format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({combined_alpha})'{mask}[{filtered}]",
             effect.brightness.clamp(-1.0, 1.0), effect.contrast.clamp(0.0, 2.0), effect.saturation.clamp(0.0, 2.0), effect.hue.clamp(-180.0, 180.0)));
         lines.push(format!("[{original}][{filtered}]overlay=0:0:eof_action=pass:enable='between(t,{start:.3},{end:.3})'[{output}]"));
         base = output;
@@ -1222,8 +1241,30 @@ pub async fn render_with_progress(
     let output = PathBuf::from(&request.output);
     ffmpeg::ensure_parent(&output)?;
 
+    let mut export_request = request.clone();
+    let mut lut_files = Vec::new();
+    for effect in &mut export_request.effects {
+        let Some(lut) = effect.lut.as_mut() else { continue };
+        if lut.size < 2 || lut.size > 64 || lut.cube_text.len() > 16 * 1024 * 1024 {
+            return Err("The project contains an unsupported or oversized 3D LUT.".to_string());
+        }
+        let sample_count = lut.cube_text.lines().filter(|line| {
+            let line = line.split('#').next().unwrap_or("").trim();
+            let fields = line.split_whitespace().collect::<Vec<_>>();
+            fields.len() == 3 && fields.iter().all(|value| value.parse::<f64>().is_ok())
+        }).count();
+        if sample_count != lut.size.pow(3) {
+            return Err(format!("The {} LUT data is malformed.", lut.title));
+        }
+        let path = ffmpeg::unique_file(&work_dir.join("exports"), "cube");
+        std::fs::write(&path, &lut.cube_text).map_err(|error| format!("Could not prepare LUT for export: {error}"))?;
+        lut.lut_path = Some(path.to_string_lossy().to_string());
+        lut_files.push(path);
+    }
+    let _lut_cleanup = LutFileCleanup(lut_files);
+
     let script_path = ffmpeg::unique_file(&work_dir.join("exports"), "filter");
-    let graph = build_graph(request);
+    let graph = build_graph(&export_request);
     std::fs::write(&script_path, graph)
         .map_err(|e| format!("Could not write export graph: {e}"))?;
 
@@ -1353,6 +1394,14 @@ pub async fn render_with_progress(
         output: output.to_string_lossy().to_string(),
         elapsed_ms: started.elapsed().as_millis(),
     })
+}
+
+struct LutFileCleanup(Vec<PathBuf>);
+
+impl Drop for LutFileCleanup {
+    fn drop(&mut self) {
+        for path in &self.0 { let _ = std::fs::remove_file(path); }
+    }
 }
 
 async fn run_export(

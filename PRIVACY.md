@@ -7,7 +7,7 @@ does with your data.
 
 - No account, sign-in, or cloud service.
 - No telemetry, analytics, crash reporting, or advertising identifiers.
-- No network requests at runtime.
+- No update checks unless you enable them in Settings.
 - Media and project files are processed on your PC only.
 
 ## What is stored locally
@@ -16,6 +16,7 @@ does with your data.
 | --- | --- | --- |
 | Project index and autosave | WebView local storage (`librecut:projects:v1`, `librecut:project:<id>:v1`) | Reopen projects after restart |
 | First-run guide flag | WebView local storage (`librecut:first-run:v1`) | Avoid showing onboarding on every launch |
+| Update preference | WebView local storage (`librecut.autoUpdate.v1`) | Remember whether opt-in update checks are enabled |
 | Saved project copies | The path you choose (`.librecut`) | Portable backups |
 | Project backups | `<name>.librecut.bak` next to the saved copy | Crash-safe overwrite |
 | Thumbnails | `%LOCALAPPDATA%\<app identifier>\thumbs` | Timeline and library previews |
@@ -36,9 +37,16 @@ app's local data directory.
 
 ## Updates
 
-v0.1 has no auto-updater and makes no update checks. A future release may add
-an opt-in updater; if it does, this document will describe the endpoints and
-data involved before it ships.
+Update checks are off by default. When enabled, LibreCut requests the stable
+release manifest from this project's GitHub Releases endpoint:
+`https://github.com/arthurlamonattopro/LibreCut/releases/latest/download/latest.json`.
+The request includes the current app version, operating system, and CPU
+architecture so GitHub can return the matching release. It does not include
+project names, media paths, media, or account identifiers. Manual update checks
+are available in Settings even when automatic checks are off. Disable the
+**Check automatically** setting to stop automatic requests and clear the saved
+opt-in. Release notes are shown before an update is downloaded. The installer
+package's signature is verified locally before installation.
 
 ## Children and sensitive data
 

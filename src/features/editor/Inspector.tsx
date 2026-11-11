@@ -25,6 +25,7 @@ import { clamp, formatClock, formatDuration, projectDuration } from "../../lib/t
 import { MAX_SPEED, MIN_SPEED, normalizeSpeedRamp, speedAt } from "../../lib/speed";
 import type { Clip, KeyframeProperty, SpeedPoint, Track, TransitionType } from "../../lib/types";
 import { DEFAULT_COMPRESSOR, DEFAULT_DUCKING } from "../../lib/audio";
+import { parseCubeLut, lutSettingsFromCube } from "../../lib/lut";
 
 function sectionTitle(title: string) {
   return <div className="mb-3 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-dim">{title}</div>;
@@ -315,6 +316,7 @@ function ClipInspector({
   playhead: number;
 }) {
   const [activeTab, setActiveTab] = useState<"Video" | "Masks" | "Audio">("Video");
+  const [lutError, setLutError] = useState("");
   const [keyframeProperty, setKeyframeProperty] = useState<KeyframeProperty>(clip.kind === "audio" ? "volume" : "opacity");
   useEffect(() => setActiveTab(clip.kind === "audio" ? "Audio" : "Video"), [clip.id, clip.kind]);
   useEffect(() => setKeyframeProperty(clip.kind === "audio" ? "volume" : "opacity"), [clip.id, clip.kind]);
@@ -457,6 +459,31 @@ function ClipInspector({
 
       {clip.kind === "misc" && clip.effect ? (
         <>
+          <div className="rounded-lg border border-line-soft bg-surface-2/40 p-2.5">
+            {sectionTitle("3D LUT")}
+            <label className="btn btn-secondary btn-sm w-full cursor-pointer justify-center">
+              Import .cube LUT
+              <input className="hidden" type="file" accept=".cube,text/plain" onChange={async (event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (!file) return;
+                try {
+                  const lut = lutSettingsFromCube(parseCubeLut(await file.text()));
+                  lut.title = file.name.replace(/\.cube$/i, "") || lut.title;
+                  onUpdate({ lut, name: `${lut.title} LUT` });
+                  setLutError("");
+                } catch (error) {
+                  setLutError(error instanceof Error ? error.message : String(error));
+                }
+              }} />
+            </label>
+            {clip.lut ? <>
+              <div className="mt-2 truncate text-[10px] text-muted" title={clip.lut.title}>{clip.lut.title} · {clip.lut.size}³</div>
+              <div className="mt-2" onPointerDown={onRecord}><Slider label="LUT strength" value={clip.lut.strength} min={0} max={1} step={0.01} format={(value) => `${Math.round(value * 100)}%`} onChange={(value) => onUpdate({ lut: { ...clip.lut!, strength: value } }, false)} /></div>
+              <button className="mt-2 text-[10px] text-dim hover:text-error" onClick={() => onUpdate({ lut: undefined, name: "Color filter" })}>Remove LUT</button>
+            </> : <p className="mt-2 text-[10px] text-dim">Import a 3D .cube file to apply it to the image.</p>}
+            {lutError ? <p role="alert" className="mt-2 text-[10px] leading-relaxed text-error">{lutError}</p> : null}
+          </div>
           {sectionTitle("Quick effects")}
           <div className="grid grid-cols-2 gap-1.5">
             {QUICK_EFFECTS.map((preset) => (

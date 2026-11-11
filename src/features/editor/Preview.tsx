@@ -14,7 +14,7 @@ import { formatClock, projectDuration } from "../../lib/time";
 import { clipValue, transitionState } from "../../lib/animation";
 import { sourceOffsetAt, speedAt } from "../../lib/speed";
 import { duckGainAt, midFilterQ, projectDuckingSegments } from "../../lib/audio";
-import type { ChromaKeyOptions, DuckSegment, Project } from "../../lib/types";
+import type { ChromaKeyOptions, DuckSegment, LutSettings, Project } from "../../lib/types";
 
 type PoolEntry = {
   kind: "video" | "audio" | "image";
@@ -31,12 +31,59 @@ type PoolEntry = {
 
 type Clock = { last: number; lastUi: number };
 type MotionHistory = { frames: HTMLCanvasElement[]; lastTime: number };
+let lutPreviewCanvas: HTMLCanvasElement | undefined;
 
 function colorWithAlpha(color: string, alpha: number): string {
   const match = /^#([0-9a-f]{6})$/i.exec(color);
   if (!match) return color;
   const value = Number.parseInt(match[1], 16);
   return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+}
+
+function applyLutToCanvas(canvas: HTMLCanvasElement, lut: LutSettings) {
+  const context = canvas.getContext("2d");
+  if (!context || lut.data.length !== lut.size ** 3 * 3) return;
+  const scale = Math.min(1, 640 / Math.max(canvas.width, canvas.height));
+  if (scale < 1) {
+    lutPreviewCanvas ??= document.createElement("canvas");
+    const preview = lutPreviewCanvas;
+    const width = Math.max(1, Math.round(canvas.width * scale));
+    const height = Math.max(1, Math.round(canvas.height * scale));
+    if (preview.width !== width || preview.height !== height) { preview.width = width; preview.height = height; }
+    const previewContext = preview.getContext("2d");
+    if (!previewContext) return;
+    previewContext.drawImage(canvas, 0, 0, width, height);
+    applyLutToCanvas(preview, lut);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(preview, 0, 0, canvas.width, canvas.height);
+    return;
+  }
+  let image: ImageData;
+  try { image = context.getImageData(0, 0, canvas.width, canvas.height); } catch { return; }
+  const { data } = image;
+  const size = lut.size;
+  const domainMin = lut.domainMin ?? [0, 0, 0];
+  const domainMax = lut.domainMax ?? [1, 1, 1];
+  const sample = (r: number, g: number, b: number, channel: number) => lut.data[((r * size + g) * size + b) * 3 + channel];
+  const blend = Math.max(0, Math.min(1, lut.strength));
+  for (let pixel = 0; pixel < data.length; pixel += 4) {
+    const coords = [0, 1, 2].map((channel) => {
+      const value = data[pixel + channel] / 255;
+      return Math.max(0, Math.min(size - 1, ((value - domainMin[channel]) / (domainMax[channel] - domainMin[channel])) * (size - 1)));
+    });
+    const lo = coords.map(Math.floor);
+    const hi = coords.map((_, channel) => Math.min(size - 1, lo[channel] + 1));
+    const f = coords.map((value, channel) => value - lo[channel]);
+    for (let channel = 0; channel < 3; channel++) {
+      let transformed = 0;
+      for (let ri = 0; ri < 2; ri++) for (let gi = 0; gi < 2; gi++) for (let bi = 0; bi < 2; bi++) {
+        const weight = (ri ? f[0] : 1 - f[0]) * (gi ? f[1] : 1 - f[1]) * (bi ? f[2] : 1 - f[2]);
+        transformed += sample(ri ? hi[0] : lo[0], gi ? hi[1] : lo[1], bi ? hi[2] : lo[2], channel) * weight;
+      }
+      data[pixel + channel] = Math.round(data[pixel + channel] * (1 - blend) + Math.max(0, Math.min(1, transformed)) * 255 * blend);
+    }
+  }
+  context.putImageData(image, 0, 0);
 }
 
 function drawFitted(
@@ -476,6 +523,7 @@ export function Preview() {
         effectCtx.setTransform(1, 0, 0, 1, 0, 0);
         effectCtx.clearRect(0, 0, canvas.width, canvas.height);
         effectCtx.drawImage(canvas, 0, 0);
+        if (clip.lut) applyLutToCanvas(effectCanvas, clip.lut);
         const localTime = time - clip.start;
         const fadeIn = effect.fadeIn > 0 ? Math.min(1, localTime / effect.fadeIn) : 1;
         const fadeOut = effect.fadeOut > 0 ? Math.min(1, (clip.duration - localTime) / effect.fadeOut) : 1;

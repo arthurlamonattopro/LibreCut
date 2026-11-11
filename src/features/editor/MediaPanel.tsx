@@ -20,7 +20,7 @@ import {
 import { useEditor } from "../../stores/editor";
 import { mediaUrl } from "../../lib/media";
 import { formatDuration } from "../../lib/time";
-import { EFFECT_PLUGIN_TEMPLATE, loadEffectPacks, parseEffectPack, saveEffectPacks, type EffectPackCategory, type InstalledEffectPack, type PluginEffectValues } from "../../lib/plugins";
+import { EFFECT_PLUGIN_TEMPLATE, loadEffectPacks, parseEffectPack, saveEffectPacks, type EffectPackCategory, type InstalledEffectPack, type PluginEffectValues, type PluginTextValues } from "../../lib/plugins";
 import { Waveform } from "../../components/Waveform";
 import { toast } from "../../components/Toast";
 import { useMediaImport } from "./useMediaImport";
@@ -68,7 +68,7 @@ const EFFECTS: EffectPreset[] = [
   { name: "Glow", category: "Dream", values: { brightness: 0.08, contrast: 0.9, blur: 2.1 } },
 ];
 
-const TEXT_PRESETS = [
+const TEXT_PRESETS: Array<{ label: string; sample: string; size: string; values?: PluginTextValues; pluginName?: string }> = [
   { label: "Title", sample: "YOUR STORY", size: "text-[17px] font-black tracking-[-0.03em]" },
   { label: "Subtitle", sample: "A new perspective", size: "text-[13px] font-semibold" },
   { label: "Caption", sample: "Add a caption", size: "text-[12px] font-medium text-white/80" },
@@ -97,6 +97,9 @@ export function MediaPanel({ width = 256 }: { width?: number }) {
   const audioAssets = filtered.filter((asset) => asset.info.hasAudio && !asset.info.hasVideo);
   const pluginEffects: EffectPreset[] = plugins.filter((plugin) => plugin.enabled).flatMap((plugin) =>
     plugin.manifest.effects.map((effect) => ({ ...effect, category: "Plugin", pluginName: plugin.manifest.name, pluginId: plugin.manifest.id })),
+  );
+  const pluginTextPresets = plugins.filter((plugin) => plugin.enabled).flatMap((plugin) =>
+    (plugin.manifest.textPresets ?? []).map((preset) => ({ label: preset.name, sample: preset.text || preset.name, size: "text-[15px] font-bold", values: preset.values, pluginName: plugin.manifest.name })),
   );
   const allEffects = [...EFFECTS, ...pluginEffects];
   const filteredEffects = allEffects.filter((effect) =>
@@ -226,18 +229,18 @@ export function MediaPanel({ width = 256 }: { width?: number }) {
           </button>
           <div className="mt-5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-dim">Presets</div>
           <div className="mt-2.5 space-y-2">
-            {TEXT_PRESETS.map((preset) => (
+            {[...TEXT_PRESETS, ...pluginTextPresets].map((preset) => (
               <button
                 key={preset.label}
                 className="group flex w-full items-center gap-3 rounded-xl border border-line-soft bg-surface-2/60 p-2.5 text-left transition hover:border-accent/30 hover:bg-panel-2"
-                onClick={() => addTextClip(preset.sample)}
+                onClick={() => addTextClip(preset.sample, undefined, preset.values)}
               >
                 <div className="flex h-14 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border border-line bg-[radial-gradient(circle_at_70%_25%,#36c8d026,transparent_60%),#0e0e11] px-1.5">
                   <span className={`text-center leading-tight text-white ${preset.size}`}>{preset.sample}</span>
                 </div>
                 <div className="min-w-0">
                   <div className="text-[12px] font-medium">{preset.label}</div>
-                  <div className="mt-0.5 text-[10.5px] text-dim">Click to add</div>
+                  <div className="mt-0.5 text-[10.5px] text-dim">{preset.pluginName ? `By ${preset.pluginName}` : "Click to add"}</div>
                 </div>
                 <Plus size={14} className="ml-auto text-dim transition group-hover:text-accent" />
               </button>
@@ -320,10 +323,11 @@ export function MediaPanel({ width = 256 }: { width?: number }) {
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
           <input ref={pluginFileRef} className="hidden" type="file" accept=".json,application/json" onChange={(event) => void installPluginFile(event.target.files?.[0])} />
           <div className="rounded-xl border border-line-soft bg-surface-2/50 p-3">
-            <div className="flex items-center gap-2 text-[12px] font-semibold"><Puzzle size={14} className="text-accent" /> Effect pack plugins</div>
-            <p className="mt-1.5 text-[10px] leading-relaxed text-dim">Add JSON effect packs to extend the Effects library. Packs use the editor’s built-in effects and never run scripts.</p>
-            <button className="btn btn-primary btn-sm mt-3 w-full" onClick={() => pluginFileRef.current?.click()}><PackagePlus size={13} /> Install effect pack</button>
-            <button className="btn btn-ghost btn-sm mt-1.5 w-full" onClick={() => downloadPlugin(EFFECT_PLUGIN_TEMPLATE, "librecut-effect-plugin.example.json")}><Download size={13} /> Download example pack</button>
+            <div className="flex items-center gap-2 text-[12px] font-semibold"><Puzzle size={14} className="text-accent" /> Editor plugins</div>
+            <p className="mt-1.5 text-[10px] leading-relaxed text-dim">Versioned JSON plugins add effect presets and text styles. They never run code or receive filesystem, network, or project access.</p>
+            <button className="btn btn-primary btn-sm mt-3 w-full" onClick={() => pluginFileRef.current?.click()}><PackagePlus size={13} /> Install plugin</button>
+            <button className="btn btn-ghost btn-sm mt-1.5 w-full" onClick={() => downloadPlugin(EFFECT_PLUGIN_TEMPLATE, "librecut-plugin.example.json")}><Download size={13} /> Download example plugin</button>
+            <p className="mt-2 text-center text-[9px] text-dim">Format guide: docs/plugins.md · API 1.0.0</p>
           </div>
           <div className="mb-2 mt-5 flex items-center justify-between px-0.5">
             <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-dim">Installed</span>
@@ -334,15 +338,16 @@ export function MediaPanel({ width = 256 }: { width?: number }) {
               <div className="flex items-start gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[11px] font-medium">{plugin.manifest.name}</div>
-                  <div className="mt-0.5 text-[9px] text-dim">v{plugin.manifest.version} · {plugin.manifest.effects.length} effects</div>
+                  <div className="mt-0.5 text-[9px] text-dim">v{plugin.manifest.version} · {plugin.manifest.effects?.length ?? 0} effects · {plugin.manifest.textPresets?.length ?? 0} text styles</div>
                 </div>
-                <button className={`flex h-6 w-6 items-center justify-center rounded-md ${plugin.enabled ? "bg-accent-soft text-accent" : "bg-surface text-dim"}`} aria-label={`${plugin.enabled ? "Disable" : "Enable"} ${plugin.manifest.name}`} title={plugin.enabled ? "Disable plugin" : "Enable plugin"} onClick={() => updatePlugins(plugins.map((item) => item.manifest.id === plugin.manifest.id ? { ...item, enabled: !item.enabled } : item))}>{plugin.enabled ? <Check size={13} /> : <Power size={12} />}</button>
+                <button disabled={Boolean(plugin.error)} className={`flex h-6 w-6 items-center justify-center rounded-md ${plugin.enabled ? "bg-accent-soft text-accent" : "bg-surface text-dim"} disabled:cursor-not-allowed disabled:opacity-40`} aria-label={`${plugin.enabled ? "Disable" : "Enable"} ${plugin.manifest.name}`} title={plugin.error ? "Remove this incompatible plugin and reinstall a compatible version" : plugin.enabled ? "Disable plugin" : "Enable plugin"} onClick={() => updatePlugins(plugins.map((item) => item.manifest.id === plugin.manifest.id ? { ...item, enabled: !item.enabled } : item))}>{plugin.enabled ? <Check size={13} /> : <Power size={12} />}</button>
                 <button className="flex h-6 w-6 items-center justify-center rounded-md bg-surface text-dim hover:text-error" aria-label={`Remove ${plugin.manifest.name}`} title="Remove plugin" onClick={() => updatePlugins(plugins.filter((item) => item.manifest.id !== plugin.manifest.id))}><Trash2 size={12} /></button>
               </div>
               {plugin.manifest.description ? <p className="mt-2 text-[10px] leading-relaxed text-muted">{plugin.manifest.description}</p> : null}
+              {plugin.error ? <p role="alert" className="mt-2 rounded-md bg-error/10 p-2 text-[10px] leading-relaxed text-error">Plugin disabled: {plugin.error}</p> : null}
               <div className="mt-2 grid grid-cols-2 gap-1">
                 <button className="btn btn-ghost btn-sm" onClick={() => downloadPlugin(plugin.manifest, `${plugin.manifest.id}.json`)}><Download size={12} /> Export</button>
-                <button className="btn btn-ghost btn-sm" disabled={!plugin.enabled} onClick={() => { setTab("effects"); setEffectCategory("Plugin"); setEffectQuery(plugin.manifest.name); }}>View effects</button>
+                <button className="btn btn-ghost btn-sm" disabled={!plugin.enabled || !plugin.manifest.effects?.length} onClick={() => { setTab("effects"); setEffectCategory("Plugin"); setEffectQuery(plugin.manifest.name); }}>View effects</button>
               </div>
             </div>)}
           </div> : <div className="mt-3 rounded-lg border border-dashed border-line p-4 text-center text-[10.5px] leading-relaxed text-dim">No plugins yet. Install an effect pack or download the example to get started.</div>}

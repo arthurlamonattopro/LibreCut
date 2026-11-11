@@ -143,6 +143,17 @@ export interface ColorEffectOptions {
   maskSize: number;
 }
 
+export interface LutSettings {
+  title: string;
+  size: number;
+  domainMin: [number, number, number];
+  domainMax: [number, number, number];
+  /** RGB triplets in .cube blue-fastest order, normalized to [0, 1]. */
+  data: number[];
+  cubeText: string;
+  strength: number;
+}
+
 export interface Clip {
   id: string;
   kind: TrackKind;
@@ -181,6 +192,7 @@ export interface Clip {
   pan: number;
   compressor: AudioCompressor;
   effect?: ColorEffectOptions;
+  lut?: LutSettings;
   keyframes: Keyframe[];
   transitionIn: ClipTransition;
   transitionOut: ClipTransition;
@@ -299,6 +311,7 @@ export interface ExportEffectRequest extends ColorEffectOptions {
   start: number;
   duration: number;
   opacity: number;
+  lut?: LutSettings;
 }
 
 export interface ExportRequest {

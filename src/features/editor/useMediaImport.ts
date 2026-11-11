@@ -23,7 +23,10 @@ function extensionOf(path: string): string {
 }
 
 function pathKey(path: string): string {
-  return path.replaceAll("/", "\\").replaceAll(/\\+/g, "\\").toLowerCase();
+  const normalized = path.replaceAll("\\", "/").replaceAll(/\/+$/g, "");
+  return typeof navigator !== "undefined" && navigator.userAgent.includes("Windows")
+    ? normalized.toLowerCase()
+    : normalized;
 }
 
 function needsProxy(info: Asset["info"]): boolean {

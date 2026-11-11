@@ -1,6 +1,6 @@
 import { produce } from "immer";
 import { create } from "zustand";
-import type { Asset, AudioCompressor, Clip, ColorEffectOptions, Project, TextOptions, Track, TrackKind } from "../lib/types";
+import type { Asset, AudioCompressor, Clip, ColorEffectOptions, LutSettings, Project, TextOptions, Track, TrackKind } from "../lib/types";
 import { clamp, projectDuration } from "../lib/time";
 import { compactMagneticTrack, findClip, removeClip, rippleTrimEnd, rippleTrimStart, settleMagneticTracks } from "../lib/timeline";
 import { sliceSpeedRamp } from "../lib/speed";
@@ -13,10 +13,11 @@ import {
 } from "../lib/audio";
 import { createTrack, newId } from "./projects";
 
-export type ClipPatch = Omit<Partial<Clip>, "text" | "effect" | "compressor"> & {
+export type ClipPatch = Omit<Partial<Clip>, "text" | "effect" | "compressor" | "lut"> & {
   text?: Partial<TextOptions>;
   effect?: Partial<ColorEffectOptions>;
   compressor?: Partial<AudioCompressor>;
+  lut?: LutSettings;
 };
 
 interface EditorState {
@@ -40,7 +41,7 @@ interface EditorState {
   removeAsset: (assetId: string) => void;
   addClip: (assetId: string, trackId?: string, start?: number) => void;
   extractAudio: (clipId: string) => void;
-  addTextClip: (text?: string, at?: number) => void;
+  addTextClip: (text?: string, at?: number, style?: Partial<TextOptions>) => void;
   addEffectClip: (preset?: { name: string; effect: Partial<ColorEffectOptions> }, at?: number) => void;
   addTrack: (kind: TrackKind) => void;
   moveClipToTrack: (clipId: string, trackId: string) => void;
@@ -273,7 +274,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({ selectedClipId: clip.id, playing: false });
   },
 
-  addTextClip: (text, at) => {
+  addTextClip: (text, at, style) => {
     const state = get();
     if (!state.project) return;
     const start = Math.max(0, at ?? state.currentTime);
@@ -331,6 +332,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         shadow: 0.5,
         shadowColor: "#000000",
         curve: 0,
+        ...style,
       },
     };
 
