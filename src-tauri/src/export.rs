@@ -181,13 +181,13 @@ pub struct ExportResult {
     pub elapsed_ms: u128,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
-struct ExportProgress {
-    percent: f64,
-    time: f64,
-    speed: String,
-    fps: f64,
+pub struct ExportProgress {
+    pub percent: f64,
+    pub time: f64,
+    pub speed: String,
+    pub fps: f64,
 }
 
 fn default_speed() -> f64 {
@@ -323,7 +323,7 @@ fn transition_fade_expr(
 /// Builds an FFmpeg filter graph using overlay-by-timestamp compositing.
 /// This keeps the graph deterministic and supports gaps and overlaps without
 /// requiring the timeline to be pre-flattened into a concat sequence.
-fn build_graph(request: &ExportRequest) -> String {
+pub fn build_graph(request: &ExportRequest) -> String {
     let width = request.width.max(16);
     let height = request.height.max(16);
     let duration = request.duration.max(0.04);
@@ -381,7 +381,7 @@ fn build_graph(request: &ExportRequest) -> String {
             String::new()
         };
         let mask = if clip.mask.as_deref() == Some("circle") {
-            ",geq=r\"r(X,Y)\":g\"g(X,Y)\":b\"b(X,Y)\":a\"alpha(X,Y)*if(lte(pow(X-W/2,2)+pow(Y-H/2,2),pow(min(W,H)/2,2)),1,0)\""
+            ",geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*if(lte(pow(X-W/2,2)+pow(Y-H/2,2),pow(min(W,H)/2,2)),1,0)'"
         } else {
             ""
         };
@@ -435,7 +435,7 @@ fn build_graph(request: &ExportRequest) -> String {
                 )
             })
             .unwrap_or_default();
-        lines.push(format!("[{index}:v]{timing},{scaling}{scale_filter},setsar=1,fps={fps},format=rgba{chroma}{rotate}{mask},geq=r=\"r(X,Y)\":g=\"g(X,Y)\":b=\"b(X,Y)\":a=\"alpha(X,Y)*({alpha})\"[v{index}]"));
+        lines.push(format!("[{index}:v]{timing},{scaling}{scale_filter},setsar=1,fps={fps},format=rgba{chroma}{rotate}{mask},geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({alpha})'[v{index}]"));
         let x_expr = keyframe_expr(&clip.keyframes, "x", clip.x, &local_t);
         let y_expr = keyframe_expr(&clip.keyframes, "y", clip.y, &local_t);
         lines.push(format!(
@@ -488,7 +488,7 @@ fn build_graph(request: &ExportRequest) -> String {
             let cx = effect.mask_x.clamp(0.0, 1.0) * width as f64;
             let cy = effect.mask_y.clamp(0.0, 1.0) * height as f64;
             let radius = (width.min(height) as f64 * effect.mask_size.clamp(0.05, 1.5)) / 2.0;
-            format!(",geq=r=\"r(X,Y)\":g=\"g(X,Y)\":b=\"b(X,Y)\":a=\"alpha(X,Y)*if(lte(pow(X-{cx:.2},2)+pow(Y-{cy:.2},2),pow({radius:.2},2)),1,0)\"")
+            format!(",geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*if(lte(pow(X-{cx:.2},2)+pow(Y-{cy:.2},2),pow({radius:.2},2)),1,0)'")
         } else {
             String::new()
         };
@@ -506,7 +506,7 @@ fn build_graph(request: &ExportRequest) -> String {
         };
         let alpha = format!("{:.3}*{fade_in}*{fade_out}", effect.opacity.clamp(0.0, 1.0));
         lines.push(format!("[{base}]split[{original}][{from}]"));
-        lines.push(format!("[{from}]eq=brightness={:.4}:contrast={:.4}:saturation={:.4},hue=h={:.3},colorchannelmixer=rr={rr:.4}:rg={rg:.4}:rb={rb:.4}:gr={gr:.4}:gg={gg:.4}:gb={gb:.4}:br={br:.4}:bg={bg:.4}:bb={bb:.4}{blur}{vignette}{motion_blur},format=rgba,colorchannelmixer=aa='{alpha}':eval=frame{mask}[{filtered}]",
+        lines.push(format!("[{from}]eq=brightness={:.4}:contrast={:.4}:saturation={:.4},hue=h={:.3},colorchannelmixer=rr={rr:.4}:rg={rg:.4}:rb={rb:.4}:gr={gr:.4}:gg={gg:.4}:gb={gb:.4}:br={br:.4}:bg={bg:.4}:bb={bb:.4}{blur}{vignette}{motion_blur},format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({alpha})'{mask}[{filtered}]",
             effect.brightness.clamp(-1.0, 1.0), effect.contrast.clamp(0.0, 2.0), effect.saturation.clamp(0.0, 2.0), effect.hue.clamp(-180.0, 180.0)));
         lines.push(format!("[{original}][{filtered}]overlay=0:0:eof_action=pass:enable='between(t,{start:.3},{end:.3})'[{output}]"));
         base = output;
@@ -769,10 +769,13 @@ fn encoder_args(encoder: Option<&str>) -> Vec<String> {
     }
 }
 
-async fn run_export(
-    app: AppHandle,
-    state: &ExportState,
-    request: ExportRequest,
+/// Render a request through FFmpeg. This is the testable core of the export
+/// command: it has no Tauri handle and reports progress through a callback.
+pub async fn render_with_progress(
+    request: &ExportRequest,
+    work_dir: &Path,
+    cancel: &AtomicBool,
+    on_progress: &(dyn Fn(ExportProgress) + Send + Sync),
 ) -> Result<ExportResult, String> {
     if request.clips.is_empty() {
         return Err("There is nothing to export.".to_string());
@@ -782,12 +785,8 @@ async fn run_export(
     let output = PathBuf::from(&request.output);
     ffmpeg::ensure_parent(&output)?;
 
-    let cache = app
-        .path()
-        .app_cache_dir()
-        .unwrap_or_else(|_| std::env::temp_dir().join("librecut"));
-    let script_path = ffmpeg::unique_file(&cache.join("exports"), "filter");
-    let graph = build_graph(&request);
+    let script_path = ffmpeg::unique_file(&work_dir.join("exports"), "filter");
+    let graph = build_graph(request);
     std::fs::write(&script_path, graph)
         .map_err(|e| format!("Could not write export graph: {e}"))?;
 
@@ -826,9 +825,10 @@ async fn run_export(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("Could not start ffmpeg: {e}"))?;
+    let mut child = command.spawn().map_err(|e| {
+        let _ = std::fs::remove_file(&script_path);
+        format!("Could not start ffmpeg: {e}")
+    })?;
     let stdout = child
         .stdout
         .take()
@@ -855,10 +855,11 @@ async fn run_export(
     let mut last_speed = String::new();
 
     loop {
-        if state.cancel.load(Ordering::Relaxed) {
+        if cancel.load(Ordering::Relaxed) {
             let _ = child.kill().await;
             let _ = stderr_task.await;
             let _ = std::fs::remove_file(&output);
+            let _ = std::fs::remove_file(&script_path);
             return Err("Export cancelled.".to_string());
         }
 
@@ -879,18 +880,18 @@ async fn run_export(
                 } else {
                     0.0
                 };
-                let _ = app.emit(
-                    "export-progress",
-                    ExportProgress {
-                        percent,
-                        time: last_time,
-                        speed: last_speed.clone(),
-                        fps: last_fps,
-                    },
-                );
+                on_progress(ExportProgress {
+                    percent,
+                    time: last_time,
+                    speed: last_speed.clone(),
+                    fps: last_fps,
+                });
             }
             Ok(Ok(None)) => break,
-            Ok(Err(error)) => return Err(format!("Could not read ffmpeg output: {error}")),
+            Ok(Err(error)) => {
+                let _ = std::fs::remove_file(&script_path);
+                return Err(format!("Could not read ffmpeg output: {error}"));
+            }
             Err(_) => continue,
         }
     }
@@ -899,24 +900,37 @@ async fn run_export(
     let stderr_text = stderr_task.await.unwrap_or_default();
     if !status.success() {
         let _ = std::fs::remove_file(&output);
+        let _ = std::fs::remove_file(&script_path);
         return Err(format!("Export failed: {}", ffmpeg::tail(&stderr_text, 10)));
     }
 
-    let _ = app.emit(
-        "export-progress",
-        ExportProgress {
-            percent: 100.0,
-            time: request.duration,
-            speed: last_speed,
-            fps: last_fps,
-        },
-    );
+    on_progress(ExportProgress {
+        percent: 100.0,
+        time: request.duration,
+        speed: last_speed,
+        fps: last_fps,
+    });
 
     let _ = std::fs::remove_file(&script_path);
     Ok(ExportResult {
         output: output.to_string_lossy().to_string(),
         elapsed_ms: started.elapsed().as_millis(),
     })
+}
+
+async fn run_export(
+    app: AppHandle,
+    state: &ExportState,
+    request: ExportRequest,
+) -> Result<ExportResult, String> {
+    let cache = app
+        .path()
+        .app_cache_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("librecut"));
+    render_with_progress(&request, &cache, &state.cancel, &|progress| {
+        let _ = app.emit("export-progress", progress);
+    })
+    .await
 }
 
 #[tauri::command]

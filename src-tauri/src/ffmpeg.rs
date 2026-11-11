@@ -1,17 +1,95 @@
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
+use serde::Serialize;
 use serde_json::Value;
 use tokio::process::Command;
+
+const EXE_SUFFIX: &str = if cfg!(windows) { ".exe" } else { "" };
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolStatus {
+    pub name: String,
+    pub path: String,
+    pub version: Option<String>,
+    pub source: String,
+    pub available: bool,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeStatus {
+    pub ready: bool,
+    pub ffmpeg: ToolStatus,
+    pub ffprobe: ToolStatus,
+}
+
+fn target_triple() -> String {
+    tauri::utils::platform::target_triple().unwrap_or_default()
+}
+
+fn candidate_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            // Installed app: sidecars live next to LibreCut.exe.
+            dirs.push(parent.to_path_buf());
+            // `cargo test` runs from target/debug/deps, while `tauri dev` stages
+            // sidecars in target/debug.
+            if parent.file_name().and_then(|name| name.to_str()) == Some("deps") {
+                if let Some(grandparent) = parent.parent() {
+                    dirs.push(grandparent.to_path_buf());
+                }
+            }
+        }
+    }
+    // Development fallback before the sidecars have been staged.
+    dirs.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries"));
+    dirs
+}
+
+fn candidate_names(stem: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let triple = target_triple();
+    if !triple.is_empty() {
+        names.push(format!("{stem}-{triple}{EXE_SUFFIX}"));
+    }
+    names.push(format!("{stem}{EXE_SUFFIX}"));
+    names.push(stem.to_string());
+    names
+}
+
+/// Resolve a tool by checking, in order: an explicit environment override, the
+/// sidecars bundled next to the executable, and finally PATH.
+fn resolve_tool(env_var: &str, stem: &str) -> (String, String) {
+    if let Ok(override_path) = std::env::var(env_var) {
+        let path = PathBuf::from(&override_path);
+        if path.is_file() {
+            return (path.to_string_lossy().to_string(), "override".to_string());
+        }
+    }
+
+    for dir in candidate_dirs() {
+        for name in candidate_names(stem) {
+            let path = dir.join(&name);
+            if path.is_file() {
+                return (path.to_string_lossy().to_string(), "bundled".to_string());
+            }
+        }
+    }
+
+    (stem.to_string(), "path".to_string())
+}
 
 /// Resolve the FFmpeg binary. A bundled sidecar or a user override can be
 /// supplied through environment variables; development falls back to PATH.
 pub fn ffmpeg_bin() -> String {
-    std::env::var("LIBRECUT_FFMPEG").unwrap_or_else(|_| "ffmpeg".to_string())
+    resolve_tool("LIBRECUT_FFMPEG", "ffmpeg").0
 }
 
 pub fn ffprobe_bin() -> String {
-    std::env::var("LIBRECUT_FFPROBE").unwrap_or_else(|_| "ffprobe".to_string())
+    resolve_tool("LIBRECUT_FFPROBE", "ffprobe").0
 }
 
 pub fn command(program: &str) -> Command {
@@ -24,6 +102,51 @@ pub fn command(program: &str) -> Command {
         cmd.as_std_mut().creation_flags(CREATE_NO_WINDOW);
     }
     cmd
+}
+
+async fn probe_tool(env_var: &str, stem: &str) -> ToolStatus {
+    let (path, source) = resolve_tool(env_var, stem);
+    let output = command(&path).arg("-version").output().await;
+    let (available, version) = match output {
+        Ok(output) if output.status.success() => {
+            let text = String::from_utf8_lossy(&output.stdout);
+            (
+                true,
+                text.lines()
+                    .next()
+                    .map(|line| line.trim().to_string())
+                    .filter(|line| !line.is_empty()),
+            )
+        }
+        _ => (false, None),
+    };
+
+    ToolStatus {
+        name: stem.to_string(),
+        path,
+        version,
+        source: if available {
+            source
+        } else {
+            "missing".to_string()
+        },
+        available,
+    }
+}
+
+/// Reports where FFmpeg/ffprobe were found so the UI can guide first-run setup
+/// and surface a clear message when a release install is incomplete.
+#[tauri::command]
+pub async fn runtime_status() -> RuntimeStatus {
+    let (ffmpeg, ffprobe) = tokio::join!(
+        probe_tool("LIBRECUT_FFMPEG", "ffmpeg"),
+        probe_tool("LIBRECUT_FFPROBE", "ffprobe")
+    );
+    RuntimeStatus {
+        ready: ffmpeg.available && ffprobe.available,
+        ffmpeg,
+        ffprobe,
+    }
 }
 
 pub async fn probe_json(path: &Path) -> Result<Value, String> {

@@ -9,11 +9,13 @@ LibreCut is a free, open-source, **local-first video editor for Windows**, built
 - **`src-tauri/src/media.rs`** — `register_media`, `generate_thumbnails`, `generate_waveform`, `create_proxy`, and the custom HTTP-style media protocol with Range/CORS/MIME support
 - **`src-tauri/src/export.rs`** — FFmpeg export graph builder, progress streaming, cancel, NVENC/QSV/AMF/libx264 encoder selection
 - **`src-tauri/src/project.rs`** — atomic `.librecut` save/load with `.bak` backup, NVENC detection
-- **`src-tauri/src/ffmpeg.rs`** — binary resolution (`LIBRECUT_FFMPEG`/`PATH`), probe helper, shared helpers
+- **`src-tauri/src/ffmpeg.rs`** — sidecar/override/PATH resolution, `runtime_status` reporting, probe helper, shared helpers
 
 ### Frontend (React 19 + TypeScript + Zustand + Tailwind v4)
 - `src/app/App.tsx` — app shell, home ↔ editor navigation, project hydration
-- `src/features/home/Home.tsx` — project library, new-project modal, settings/about
+- `src/features/home/Home.tsx` — project library, new-project modal, settings/about, runtime status
+- `src/features/home/FirstRun.tsx` — first-run guide with FFmpeg readiness check
+- `src/lib/firstRun.ts` — onboarding state with safe localStorage fallbacks
 - `src/features/editor/Editor.tsx` — layout, autosave (debounced + `beforeunload`), keyboard shortcuts
 - `src/features/editor/Preview.tsx` — media element pool → 2D canvas compositor → Web Audio gain graph
 - `src/features/editor/Timeline.tsx` — multi-track timeline, move/trim/split/snapping/zoom
@@ -33,7 +35,12 @@ LibreCut is a free, open-source, **local-first video editor for Windows**, built
 - `package.json`, `vite.config.ts`, `tsconfig.json`, `tailwind` via globals.css
 - `pnpm-workspace.yaml` (`onlyBuiltDependencies: [esbuild]`) for pnpm 12
 - `.github/workflows/ci.yml` — frontend + Rust checks/tests/build on Windows
-- `scripts/fetch-ffmpeg.ps1` — downloads/unpacks a full GPL FFmpeg build for sidecar bundling
+- `.github/workflows/release.yml` — installer build and verification on tags/manual runs
+- `scripts/fetch-ffmpeg.ps1` — downloads, checksum-verifies, and stages FFmpeg sidecars
+- `scripts/verify-installer.ps1` — inspects NSIS/MSI output and optionally silent-installs
+- `scripts/build-release.ps1` — fetch + build + verify release pipeline
+- `scripts/generate-installer-art.ps1` — NSIS header/sidebar bitmaps from the brand palette
+- `src-tauri/tests/media_e2e.rs` — real-media probe, waveform, overlay, and export tests
 
 ### Docs & legal
 - `README.md`, `docs/architecture.md`, `docs/project-format.md`
@@ -46,10 +53,13 @@ LibreCut is a free, open-source, **local-first video editor for Windows**, built
 | --- | --- |
 | `pnpm check` | ✅ pass |
 | `pnpm build` | ✅ pass |
-| `pnpm test` | ✅ 10/10 pass |
-| `cargo check` | ✅ pass |
+| `pnpm test` | ✅ 14 unit tests pass |
+| `cargo fmt --check` | ✅ pass |
+| `cargo clippy --all-targets -- -D warnings` | ✅ pass |
+| `cargo test` with `LIBRECUT_REQUIRE_FFMPEG=1` | ✅ 7 real-media probe/waveform/overlay/mask/export tests pass |
 | `pnpm tauri dev` | ✅ Vite alive, Tauri window opens (title "LibreCut") |
-| FFmpeg export spike | ✅ overlay/drawtext/audio/filter-script render |
+| `pnpm tauri build` | ✅ NSIS 59.1 MiB and MSI 79.4 MiB with FFmpeg 9.0.2 sidecars |
+| `scripts/verify-installer.ps1 -InstallTest` | ✅ silent NSIS install and MSI administrative install contain the app, sidecars, and legal files |
 
 ## How to run
 

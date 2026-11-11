@@ -28,14 +28,20 @@ each component's license text and include the required notices.
 LibreCut invokes a separate FFmpeg executable. FFmpeg is **not** linked into the
 app and is **not** covered by LibreCut's GPL-3.0 license.
 
-- The development build on this machine uses an FFmpeg build with GPL components
-  enabled (`libx264`, `libx265`, `libfreetype`, etc.).
-- FFmpeg is licensed under the LGPL-2.1+ by default, and GPL-2.0+ when
-  GPL-only components are compiled in.
-- If you distribute LibreCut with a bundled GPL FFmpeg build, the combined
-  distribution must comply with the GPL. Provide the exact FFmpeg source used
-  and the build configuration, and include FFmpeg's license text.
-- If you distribute an LGPL FFmpeg build, include the LGPL text, provide the
+- Release builds bundle `ffmpeg.exe` and `ffprobe.exe` as Tauri sidecars next to
+  the app. Development builds can use the same sidecars or a system FFmpeg.
+- `scripts/fetch-ffmpeg.ps1` downloads the Windows build from
+  <https://www.gyan.dev/ffmpeg/builds/>, verifies its SHA-256 checksum, and
+  records the build information in `src-tauri/legal/FFMPEG-BUILD-INFO.txt`.
+  It uses the matching GitHub release asset when available and falls back to
+  gyan.dev.
+- The fetched build enables GPL components (`libx264`, `libfreetype`, etc.), so
+  it is distributed under GPLv3. The GPLv3 text is included at
+  `src-tauri/legal/FFMPEG-GPLv3.txt`.
+- A redistributed installer must keep `THIRD_PARTY_LICENSES.md`, `PRIVACY.md`,
+  `LICENSE`, the FFmpeg license text, and the source offer, and must provide
+  the corresponding FFmpeg source for at least three years.
+- If you substitute an LGPL FFmpeg build, include the LGPL text, provide the
   corresponding source, and keep FFmpeg dynamically separate from LibreCut.
 
 FFmpeg source and licensing: <https://ffmpeg.org/legal.html>

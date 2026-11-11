@@ -29,6 +29,11 @@ backend over Tauri IPC. All media work happens locally with FFmpeg.
 - **Rust** owns validation, file I/O, process orchestration, and streaming
   progress back as Tauri events (`media-progress`, `export-progress`).
 - **FFmpeg** is an external process. LibreCut never links FFmpeg into the app.
+- **Sidecars:** release installers place `ffmpeg.exe` and `ffprobe.exe` next to
+  `LibreCut.exe`. `ffmpeg.rs` resolves an environment override first, then the
+  sidecar (with or without the target-triple suffix), then `PATH`. The
+  `runtime_status` command reports the resolved paths and versions so the UI can
+  explain a missing runtime.
 
 ## Media protocol
 
@@ -118,6 +123,8 @@ gestures (drag, slider) record once on gesture start to keep history readable.
 ## Failure modes
 
 - Missing source file → protocol returns 404; asset shows a broken thumbnail.
+- Missing FFmpeg/ffprobe → `runtime_status` reports the unresolved tool; the
+  first-run guide, Settings, and export dialog explain how to fix it.
 - Proxy failure → status `failed`, the app falls back to the original file.
 - Export failure → partial output is deleted and FFmpeg's tail is shown.
 - Corrupt project → load returns an error; the `.bak` file can be renamed back.

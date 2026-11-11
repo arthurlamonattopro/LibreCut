@@ -87,6 +87,7 @@ The interface uses graphite surfaces, compact Segoe UI controls, and teal only f
 - Teal marks primary actions, focus, and selection.
 - Local project status and export actions stay in the top bar.
 - The home screen puts New project and Open project in the same consistent header.
+- A Getting started entry reopens the first-run guide; the guide also checks the FFmpeg runtime.
 - Project rows show a real thumbnail, name, edit date, format, and duration.
 - The LC monogram and wordmark use the same restrained palette.
 

@@ -33,9 +33,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - name: Cache FFmpeg sidecars
+        uses: actions/cache@v4
+        with:
+          path: |
+            src-tauri/binaries
+            src-tauri/legal/FFMPEG-BUILD-INFO.txt
+            src-tauri/legal/FFMPEG-BUILD-LICENSE.txt
+          key: ffmpeg-essentials-${{ hashFiles('scripts/fetch-ffmpeg.ps1') }}
+      - name: Fetch FFmpeg sidecars
+        run: ./scripts/fetch-ffmpeg.ps1
+        shell: pwsh
       - run: cargo fmt --check
         working-directory: src-tauri
       - run: cargo clippy --all-targets -- -D warnings
         working-directory: src-tauri
       - run: cargo test
         working-directory: src-tauri
+        env:
+          LIBRECUT_REQUIRE_FFMPEG: "1"

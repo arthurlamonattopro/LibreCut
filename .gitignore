@@ -9,6 +9,9 @@ src-tauri/gen/schemas/
 
 # local tools and fetched binaries
 tools/
+src-tauri/binaries/
+src-tauri/legal/FFMPEG-BUILD-INFO.txt
+src-tauri/legal/FFMPEG-BUILD-LICENSE.txt
 *.log
 
 # environment

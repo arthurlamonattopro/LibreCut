@@ -1,7 +1,7 @@
-mod export;
-mod ffmpeg;
-mod media;
-mod project;
+pub mod export;
+pub mod ffmpeg;
+pub mod media;
+pub mod project;
 
 pub fn run() {
     tauri::Builder::default()
@@ -13,6 +13,7 @@ pub fn run() {
             media::handle_protocol(ctx.app_handle(), &request)
         })
         .invoke_handler(tauri::generate_handler![
+            ffmpeg::runtime_status,
             media::register_media,
             media::generate_thumbnails,
             media::generate_waveform,

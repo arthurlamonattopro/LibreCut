@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  BookOpen,
   Film,
   FolderOpen,
   Github,
   Info,
   LayoutGrid,
   Plus,
+  RefreshCw,
   Settings,
   Trash2,
 } from "lucide-react";
@@ -13,9 +15,11 @@ import { Modal } from "../../components/Modal";
 import { Logo } from "../../components/Logo";
 import { toast } from "../../components/Toast";
 import { createProject, deleteProject, listProjects, loadProject as loadProjectById, persistProject } from "../../stores/projects";
-import { loadProjectFile, pickProjectToOpen } from "../../lib/media";
+import { getRuntimeStatus, loadProjectFile, pickProjectToOpen } from "../../lib/media";
+import { hasSeenFirstRun, markFirstRunSeen } from "../../lib/firstRun";
 import { formatDuration, formatRelativeDate } from "../../lib/time";
-import type { Project, ProjectSummary } from "../../lib/types";
+import type { Project, ProjectSummary, RuntimeStatus } from "../../lib/types";
+import { FirstRun } from "./FirstRun";
 
 interface HomeProps {
   onOpenProject: (project: Project) => void;
@@ -33,6 +37,13 @@ function aspectLabel(width: number, height: number): string {
   return `${width}×${height}`;
 }
 
+function runtimeSourceLabel(source: string): string {
+  if (source === "bundled") return "Bundled sidecar";
+  if (source === "override") return "Environment override";
+  if (source === "path") return "System PATH";
+  return "Not found";
+}
+
 function dimensions(aspect: Aspect, resolution: Resolution): { width: number; height: number } {
   const short = Number(resolution);
   const even = (value: number) => Math.round(value / 2) * 2;
@@ -48,12 +59,47 @@ export function Home({ onOpenProject }: HomeProps) {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
   const [clearOpen, setClearOpen] = useState(false);
+  const [firstRunOpen, setFirstRunOpen] = useState(false);
+  const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
+  const [checkingRuntime, setCheckingRuntime] = useState(false);
 
   const refresh = () => setProjects(listProjects());
 
+  const refreshRuntime = async () => {
+    setCheckingRuntime(true);
+    try {
+      setRuntime(await getRuntimeStatus());
+    } catch {
+      setRuntime(null);
+    } finally {
+      setCheckingRuntime(false);
+    }
+  };
+
   useEffect(() => {
-    refresh();
+    const existing = listProjects();
+    setProjects(existing);
+    // Existing users should not see onboarding just because this flag is new.
+    if (existing.length === 0 && !hasSeenFirstRun()) {
+      setFirstRunOpen(true);
+    }
   }, []);
+
+  useEffect(() => {
+    if (firstRunOpen || settingsOpen) void refreshRuntime();
+    // Runtime checks are only needed when a guidance surface is visible.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firstRunOpen, settingsOpen]);
+
+  const closeFirstRun = () => {
+    markFirstRunSeen();
+    setFirstRunOpen(false);
+  };
+
+  const startFromFirstRun = () => {
+    closeFirstRun();
+    setNewOpen(true);
+  };
 
   const openProject = (id: string) => {
     const project = loadProjectById(id);
@@ -143,8 +189,15 @@ export function Home({ onOpenProject }: HomeProps) {
           <Logo size={30} withWordmark />
         </div>
 
-        <nav>
+        <nav className="space-y-1">
           <NavItem icon={LayoutGrid} label="Projects" active />
+          <button
+            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[12px] font-medium text-muted transition hover:bg-white/[0.04] hover:text-ink"
+            onClick={() => setFirstRunOpen(true)}
+          >
+            <BookOpen size={14} />
+            <span className="flex-1 text-left">Getting started</span>
+          </button>
         </nav>
 
         <div className="mt-auto border-t border-line-soft pt-3">
@@ -224,6 +277,15 @@ export function Home({ onOpenProject }: HomeProps) {
         </footer>
       </main>
 
+      <FirstRun
+        open={firstRunOpen}
+        runtime={runtime}
+        checking={checkingRuntime}
+        onRefresh={() => void refreshRuntime()}
+        onClose={closeFirstRun}
+        onCreate={startFromFirstRun}
+      />
+
       <NewProjectModal open={newOpen} onClose={() => setNewOpen(false)} onCreate={handleCreate} />
 
       <Modal
@@ -262,6 +324,29 @@ export function Home({ onOpenProject }: HomeProps) {
               </div>
               <span className="chip">{projects.length} projects</span>
             </div>
+          </div>
+          <div className="rounded-xl border border-line-soft bg-surface-2/50 p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="text-[12.5px] font-medium">FFmpeg runtime</div>
+                <p className="mt-1 text-[11.5px] leading-relaxed text-dim">
+                  Import, proxies, and export use the FFmpeg sidecar bundled with LibreCut.
+                </p>
+                <div className="mt-1.5 break-all font-mono text-[9.5px] text-dim">
+                  {checkingRuntime
+                    ? "Checking…"
+                    : runtime
+                      ? `${runtimeSourceLabel(runtime.ffmpeg.source)} · ${runtime.ffmpeg.version?.split(" Copyright")[0] ?? "FFmpeg"}`
+                      : "Runtime status unavailable"}
+                </div>
+              </div>
+              <span className={`chip shrink-0 ${runtime?.ready ? "text-mint" : runtime ? "text-accent" : ""}`}>
+                {checkingRuntime ? "Checking…" : runtime?.ready ? "Ready" : runtime ? "Missing" : "Unknown"}
+              </span>
+            </div>
+            <button className="btn btn-ghost btn-sm mt-2" onClick={() => void refreshRuntime()} disabled={checkingRuntime}>
+              <RefreshCw size={12} className={checkingRuntime ? "animate-spin" : ""} /> Recheck runtime
+            </button>
           </div>
           <div className="rounded-xl border border-line-soft bg-surface-2/50 p-4">
             <div className="text-[12.5px] font-medium">Privacy</div>

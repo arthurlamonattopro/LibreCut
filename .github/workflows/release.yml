@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Cache FFmpeg sidecars
+        uses: actions/cache@v4
+        with:
+          path: |
+            src-tauri/binaries
+            src-tauri/legal/FFMPEG-BUILD-INFO.txt
+            src-tauri/legal/FFMPEG-BUILD-LICENSE.txt
+          key: ffmpeg-essentials-${{ hashFiles('scripts/fetch-ffmpeg.ps1') }}
+      - name: Fetch FFmpeg sidecars
+        run: ./scripts/fetch-ffmpeg.ps1
+        shell: pwsh
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+      - name: Build installers
+        run: pnpm tauri build
+      - name: Verify installer output
+        run: ./scripts/verify-installer.ps1 -InstallTest
+        shell: pwsh
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: librecut-windows-installers
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error

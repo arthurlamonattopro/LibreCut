@@ -27,9 +27,9 @@ a promise. Priorities can change based on community feedback.
 
 Remaining before tagging v0.1:
 
-- [ ] Bundle FFmpeg as a sidecar and verify installer output
-- [ ] End-to-end tests on real media
-- [ ] Icon, installer polish, and first-run guidance
+- [x] Bundle FFmpeg as a sidecar and verify installer output
+- [x] End-to-end tests on real media
+- [x] Icon, installer polish, and first-run guidance
 
 ## v0.2 — timeline depth
 

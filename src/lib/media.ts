@@ -8,6 +8,7 @@ import type {
   MediaInfo,
   MediaProgress,
   RegisteredMedia,
+  RuntimeStatus,
 } from "./types";
 
 export interface CaptionSegment { start: number; end: number; text: string }
@@ -88,6 +89,10 @@ export async function cancelExport(): Promise<void> {
 
 export async function isExporting(): Promise<boolean> {
   return invoke<boolean>("is_exporting");
+}
+
+export async function getRuntimeStatus(): Promise<RuntimeStatus> {
+  return invoke<RuntimeStatus>("runtime_status");
 }
 
 export async function revealFile(path: string): Promise<void> {

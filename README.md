@@ -16,8 +16,10 @@ Verified today:
 - `pnpm check` (TypeScript) passes
 - `pnpm build` (Vite production build) passes
 - `cargo check` (Rust) passes
-- `pnpm test` (Vitest unit tests) passes (10/10)
+- `pnpm test` (Vitest unit tests) passes
+- `pnpm test:e2e` renders real generated media through the FFmpeg export graph
 - FFmpeg 9 export spike passed: `-/filter_complex` script, overlay, drawtext, audio mix all render
+- Windows installers bundle `ffmpeg.exe` and `ffprobe.exe` as Tauri sidecars; `scripts/verify-installer.ps1` checks NSIS and MSI output
 
 Working today:
 
@@ -42,9 +44,10 @@ Not in v0.1:
 - Windows 10/11 (WebView2 Evergreen)
 - Node.js 22+ and pnpm 10+
 - Rust 1.77+ with the MSVC toolchain and Windows SDK
-- FFmpeg 9.x with `ffprobe` available on `PATH` for development
+- FFmpeg 9.x with `ffprobe` for development
+  - Run `pnpm fetch:ffmpeg` to download verified sidecars into `src-tauri/binaries/`.
+  - If you prefer a system install, put `ffmpeg`/`ffprobe` on `PATH` or set `LIBRECUT_FFMPEG` and `LIBRECUT_FFPROBE`.
   - The export pipeline uses FFmpeg 9's `-/filter_complex` script option.
-  - A bundled FFmpeg sidecar is planned for release builds; the build script is in `scripts/fetch-ffmpeg.ps1`.
 
 ## Development
 
@@ -56,14 +59,25 @@ pnpm tauri dev
 Useful checks:
 
 ```powershell
-pnpm check        # TypeScript
-pnpm test         # unit tests
-pnpm build        # production frontend build
-cargo check       # Rust (run from src-tauri)
-cargo test        # Rust tests
+pnpm check             # TypeScript
+pnpm test              # unit tests
+pnpm test:e2e          # real-media Rust export/probe tests
+pnpm build             # production frontend build
+pnpm fetch:ffmpeg      # download verified FFmpeg sidecars
+pnpm verify:installer  # inspect built NSIS/MSI artifacts
+cargo check            # Rust (run from src-tauri)
+cargo test             # Rust tests
 ```
 
-If your shell cannot see FFmpeg after installation, refresh `PATH` or restart the terminal. LibreCut reads `LIBRECUT_FFMPEG` and `LIBRECUT_FFPROBE` as optional overrides.
+If your shell cannot see FFmpeg after installation, refresh `PATH` or restart the terminal. LibreCut reads `LIBRECUT_FFMPEG` and `LIBRECUT_FFPROBE` as optional overrides. Release builds resolve the bundled sidecars first.
+
+### Release builds
+
+```powershell
+pnpm build:release
+```
+
+This fetches FFmpeg, builds the frontend and Tauri bundles, and verifies that the NSIS and MSI installers contain the sidecars and notices. Add `-InstallTest` to perform a silent install into a temporary directory. See [docs/release.md](docs/release.md).
 
 ## Architecture
 
@@ -88,6 +102,7 @@ ffmpeg / ffprobe
 - **Preview:** HTML media element pool → 2D canvas compositor → Web Audio gain graph.
 - **Proxies:** 720p/1080p H.264 copies are generated for 4K or non-web-friendly codecs so scrubbing stays responsive.
 - **Export:** overlay-by-timestamp filter graph; supports gaps, overlaps, speed, text, and mixed audio. Filters are written to a script file to avoid Windows command-line limits.
+- **Runtime tools:** `ffmpeg.exe` and `ffprobe.exe` are Tauri sidecars next to the app. Resolution order is `LIBRECUT_FFMPEG`/`LIBRECUT_FFPROBE`, bundled sidecar, then `PATH`.
 - **Project storage:** local JSON in app storage for the preview; Save copy writes a versioned `.librecut` file atomically with a `.bak` backup.
 
 More detail: [docs/architecture.md](docs/architecture.md) and [docs/project-format.md](docs/project-format.md).

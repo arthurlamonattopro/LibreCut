@@ -249,3 +249,19 @@ export interface MediaProgress {
   path: string;
   percent: number;
 }
+
+export type RuntimeToolSource = "bundled" | "override" | "path" | "missing";
+
+export interface RuntimeToolStatus {
+  name: string;
+  path: string;
+  version: string | null;
+  source: RuntimeToolSource;
+  available: boolean;
+}
+
+export interface RuntimeStatus {
+  ready: boolean;
+  ffmpeg: RuntimeToolStatus;
+  ffprobe: RuntimeToolStatus;
+}

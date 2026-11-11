@@ -15,6 +15,7 @@ does with your data.
 | Data | Location | Purpose |
 | --- | --- | --- |
 | Project index and autosave | WebView local storage (`librecut:projects:v1`, `librecut:project:<id>:v1`) | Reopen projects after restart |
+| First-run guide flag | WebView local storage (`librecut:first-run:v1`) | Avoid showing onboarding on every launch |
 | Saved project copies | The path you choose (`.librecut`) | Portable backups |
 | Project backups | `<name>.librecut.bak` next to the saved copy | Crash-safe overwrite |
 | Thumbnails | `%LOCALAPPDATA%\<app identifier>\thumbs` | Timeline and library previews |

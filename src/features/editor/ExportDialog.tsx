@@ -20,6 +20,7 @@ import {
   cancelExport,
   detectHardwareEncoder,
   exportProject,
+  getRuntimeStatus,
   pickExportPath,
   revealFile,
 } from "../../lib/media";
@@ -31,6 +32,7 @@ import type {
   ExportRequest,
   ExportResult,
   Project,
+  RuntimeStatus,
 } from "../../lib/types";
 
 type Preset = "source" | "youtube" | "tiktok" | "square" | "4k";
@@ -225,6 +227,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [result, setResult] = useState<ExportResult | null>(null);
   const [error, setError] = useState("");
+  const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
 
   useEffect(() => {
     if (!open || !project) return;
@@ -235,10 +238,12 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
     setExporting(false);
     setCancelling(false);
     setOutputPath("");
+    setRuntime(null);
     void detectHardwareEncoder().then((available) => {
       setHasNvenc(available);
       setEncoder(available ? "nvenc" : "libx264");
     });
+    void getRuntimeStatus().then(setRuntime).catch(() => setRuntime(null));
   }, [open, project]);
 
   useEffect(() => {
@@ -262,7 +267,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   const clipCount = project.tracks.reduce((sum, track) => sum + track.clips.length, 0);
   const duration = projectDuration(project.tracks, 0);
-  const canExport = clipCount > 0 && !exporting;
+  const canExport = clipCount > 0 && !exporting && runtime?.ready !== false;
 
   const chooseOutput = async () => {
     const path = await pickExportPath(project.name);
@@ -466,6 +471,16 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
                 <span>{formatClock(progress.time, project.fps)} / {formatClock(duration, project.fps)}</span>
                 <span>{progress.speed || "—"} · {progress.fps ? `${progress.fps.toFixed(0)} fps` : ""}</span>
               </div>
+            </div>
+          ) : null}
+
+          {runtime && !runtime.ready ? (
+            <div className="flex items-start gap-2 rounded-xl border border-accent/25 bg-accent-soft/40 p-3 text-[11px] leading-relaxed text-accent">
+              <CircleAlert size={14} className="mt-0.5 shrink-0" />
+              <span>
+                FFmpeg was not found, so export is unavailable. Reinstall LibreCut or set
+                LIBRECUT_FFMPEG and LIBRECUT_FFPROBE, then reopen this dialog.
+              </span>
             </div>
           ) : null}
 

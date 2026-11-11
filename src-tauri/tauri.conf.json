@@ -40,13 +40,32 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "externalBin": ["binaries/ffmpeg", "binaries/ffprobe"],
+    "resources": {
+      "../LICENSE": "LICENSE",
+      "../THIRD_PARTY_LICENSES.md": "THIRD_PARTY_LICENSES.md",
+      "../PRIVACY.md": "PRIVACY.md",
+      "legal/": "legal/"
+    },
     "copyright": "LibreCut contributors",
+    "publisher": "LibreCut contributors",
+    "license": "GPL-3.0-only",
+    "licenseFile": "../LICENSE",
     "category": "Video",
     "shortDescription": "Free and open-source video editor",
     "longDescription": "LibreCut is a local-first, open-source video editor for Windows. No account, no watermark, no telemetry.",
     "windows": {
+      "allowDowngrades": false,
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "icons/installer-header.bmp",
+        "sidebarImage": "icons/installer-sidebar.bmp",
+        "uninstallerHeaderImage": "icons/installer-header.bmp",
+        "startMenuFolder": "LibreCut",
+        "languages": ["English"],
+        "displayLanguageSelector": false,
+        "compression": "lzma"
       }
     }
   }

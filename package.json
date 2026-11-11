@@ -12,7 +12,11 @@
     "tauri": "tauri",
     "check": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "cargo test --manifest-path src-tauri/Cargo.toml --test media_e2e -- --nocapture",
+    "fetch:ffmpeg": "powershell -ExecutionPolicy Bypass -File scripts/fetch-ffmpeg.ps1",
+    "verify:installer": "powershell -ExecutionPolicy Bypass -File scripts/verify-installer.ps1",
+    "build:release": "powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",

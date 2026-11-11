@@ -17,10 +17,11 @@ Requirements:
 - Windows 10/11 with WebView2
 - Node.js 22+ and pnpm 10+
 - Rust stable with the MSVC toolchain and Windows SDK
-- FFmpeg 9.x (`ffmpeg` and `ffprobe`) on `PATH`
+- FFmpeg 9.x sidecars, fetched with `pnpm fetch:ffmpeg`, or `ffmpeg`/`ffprobe` on `PATH`
 
 ```powershell
 pnpm install
+pnpm fetch:ffmpeg
 pnpm tauri dev
 ```
 
@@ -29,6 +30,7 @@ Run the full check suite before opening a PR:
 ```powershell
 pnpm check
 pnpm test
+pnpm test:e2e
 pnpm build
 cd src-tauri; cargo fmt --check; cargo clippy -- -D warnings; cargo test
 ```
@@ -40,8 +42,8 @@ cd src-tauri; cargo fmt --check; cargo clippy -- -D warnings; cargo test
 - CSS: Tailwind v4 utilities plus the existing `globals.css` component classes.
 - Rust: `cargo fmt`, clippy clean, `Result<T, String>` for command errors.
 - Keep UI copy in English; short, direct, no marketing filler.
-- Match the existing dark/coral design language. Do not clone another editor's
-  layout or assets.
+- Match the existing graphite/teal design language. Do not clone another
+  editor's layout or assets.
 
 ## Architecture notes
 
@@ -61,6 +63,9 @@ See [docs/architecture.md](docs/architecture.md) and
 
 - Unit tests live in `tests` and run with `pnpm test` (Vitest).
 - Prefer testing pure logic: time math, snapping, project/export builders.
+- `pnpm test:e2e` runs `src-tauri/tests/media_e2e.rs`, which generates real media
+  with FFmpeg and exercises probe, waveform, overlay, and export end to end.
+  Set `LIBRECUT_REQUIRE_FFMPEG=1` to make missing FFmpeg a hard failure.
 - Manual checks: import, scrub, trim, split, text edit, proxy playback, export.
 - Include the smallest source media that reproduces a bug.
 
