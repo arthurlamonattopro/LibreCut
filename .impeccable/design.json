@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-10T22:09:14Z",
+  "title": "Design System: LibreCut",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "Edit Teal",
+        "canonical": "#36c8d0",
+        "tonalRamp": ["#36c8d0", "#57d9df"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Work Surface",
+        "tonalRamp": ["#101114", "#15171b", "#1b1d22", "#22252b", "#292d34"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Primary Text",
+        "tonalRamp": ["#797f89", "#a5a9b1", "#f5f6f7"]
+      }
+    },
+    "typographyMeta": {
+      "body": {
+        "displayName": "Desktop UI Sans",
+        "purpose": "Compact interface copy, controls, and panel headings."
+      },
+      "measurement": {
+        "displayName": "Measurement Mono",
+        "purpose": "Timecode, dimensions, and timeline values."
+      }
+    },
+    "shadows": [
+      {
+        "name": "modal-separation",
+        "value": "0 24px 80px rgba(0,0,0,0.5)",
+        "purpose": "Separate modal content from the workspace."
+      },
+      {
+        "name": "selected-clip",
+        "value": "0 0 0 1px #36c8d066, 0 6px 18px -8px #000",
+        "purpose": "Make the selected timeline clip easy to identify."
+      }
+    ],
+    "motion": [
+      {
+        "name": "control-state",
+        "value": "120ms ease",
+        "purpose": "Quick feedback for hover, focus, and pressed control states."
+      },
+      {
+        "name": "dialog-entry",
+        "value": "180ms cubic-bezier(0.2,0.8,0.2,1)",
+        "purpose": "Short reveal for modal content."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Teal primary action for creating a project or exporting a video.",
+      "html": "<button class=\"ds-button-primary\">Create project</button>",
+      "css": ".ds-button-primary { height: 34px; padding: 0 13px; border: 1px solid transparent; border-radius: 8px; background: var(--color-accent); color: #071719; font: 560 13px/1 \"Segoe UI Variable Display\", \"Segoe UI\", system-ui, sans-serif; transition: background 120ms ease, transform 80ms ease; } .ds-button-primary:hover { background: var(--color-accent-hover); } .ds-button-primary:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; } .ds-button-primary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Workspace Panel",
+      "kind": "custom",
+      "description": "Flat graphite work panel separated by a fine divider.",
+      "html": "<section class=\"ds-workspace-panel\">Media, preview, or clip settings</section>",
+      "css": ".ds-workspace-panel { padding: 16px; background: var(--color-panel); border: 1px solid var(--color-line-soft); color: var(--color-ink); }"
+    },
+    {
+      "name": "Project List Row",
+      "kind": "card",
+      "description": "Flat project row with a real thumbnail and concise edit metadata.",
+      "html": "<article class=\"ds-project-row\"><button class=\"ds-project-open\"><img class=\"ds-project-thumb\" alt=\"\"><span class=\"ds-project-name\">Project name</span><span class=\"ds-project-date\">Edited recently</span><span class=\"ds-project-format\">16:9 · 30 fps</span><span class=\"ds-project-duration\">0:24</span></button><button class=\"ds-project-delete\" aria-label=\"Delete Project name\">Delete</button></article>",
+      "css": ".ds-project-row { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--color-line-soft); } .ds-project-open { display: flex; min-width: 0; flex: 1; align-items: center; gap: 16px; border: 0; background: transparent; color: var(--color-ink); text-align: left; font: inherit; } .ds-project-thumb { width: 120px; height: 68px; flex: none; border-radius: 2px; background: var(--color-panel-2); object-fit: cover; } .ds-project-name { min-width: 0; flex: 1; font-size: 13px; } .ds-project-date, .ds-project-format, .ds-project-duration { color: var(--color-muted); font-size: 11px; } .ds-project-delete { width: 32px; height: 32px; flex: none; border: 0; background: transparent; color: var(--color-dim); } .ds-project-row:hover .ds-project-name { color: var(--color-accent); } .ds-project-open:focus-visible, .ds-project-delete:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Cut List",
+    "overview": "LibreCut is a working tool, not a campaign surface. The home screen is a direct route into an edit, and the editor reserves visual priority for the footage and timeline. Graphite surfaces, fine dividers, and a single teal action color keep the interface legible without decorative noise.",
+    "keyCharacteristics": [
+      "Media, preview, inspector, and timeline visible together",
+      "Teal for actions, keyboard focus, and selection",
+      "Local project status and export in the top bar",
+      "Flat project rows; no promotional hero or decorative gradient",
+      "LC monogram with a single-color wordmark"
+    ],
+    "rules": [
+      {
+        "name": "The Teal Means Action Rule",
+        "body": "Use teal for primary actions, keyboard focus, and current selection. Track colors identify track kinds.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "Keep the preview and timeline as the visual center of editing.",
+      "Keep import, save, and export feedback clear."
+    ],
+    "donts": [
+      "Do not imply CapCut or ByteDance affiliation.",
+      "Do not add cloud, account, template, or effect-store claims unsupported by the product."
+    ]
+  }
+}

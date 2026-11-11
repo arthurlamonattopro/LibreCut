@@ -1,0 +1,54 @@
+import { useEffect, type ReactNode } from "react";
+import { X } from "lucide-react";
+
+interface ModalProps {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  description?: string;
+  children: ReactNode;
+  footer?: ReactNode;
+  width?: number;
+}
+
+export function Modal({ open, onClose, title, description, children, footer, width = 520 }: ModalProps) {
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+      <div className="absolute inset-0 bg-black/65 backdrop-blur-sm animate-fade-in" onClick={onClose} />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="relative w-full overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl shadow-black/60 animate-pop-in"
+        style={{ maxWidth: width }}
+      >
+        <div className="flex items-start justify-between gap-6 px-6 pb-4 pt-6">
+          <div>
+            <h2 className="text-[17px] font-semibold tracking-[-0.02em]">{title}</h2>
+            {description ? <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">{description}</p> : null}
+          </div>
+          <button className="btn btn-ghost btn-icon -mr-2 -mt-1" onClick={onClose} aria-label="Close">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="px-6 pb-6">{children}</div>
+        {footer ? (
+          <div className="flex items-center justify-end gap-2 border-t border-line-soft bg-surface-2/60 px-6 py-3.5">
+            {footer}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}

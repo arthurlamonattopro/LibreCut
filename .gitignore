@@ -1,0 +1,30 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# local tools and fetched binaries
+tools/
+*.log
+
+# environment
+.env
+.env.*
+!.env.example
+
+# editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# app cache / test output
+coverage/
+test-results/
+playwright-report/
+tests/fixtures/generated/
