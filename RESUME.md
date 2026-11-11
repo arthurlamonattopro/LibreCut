@@ -11,6 +11,8 @@ The current project milestone is the **v0.3 development preview**. It includes t
 - **`src-tauri/src/media.rs`** — `register_media`, `generate_thumbnails`, `generate_waveform`, `create_proxy`, and the custom HTTP-style media protocol with Range/CORS/MIME support
 - **`src-tauri/src/export.rs`** — FFmpeg export graph builder, progress streaming, cancel, NVENC/QSV/AMF/libx264 encoder selection
 - **`src-tauri/src/project.rs`** — atomic `.librecut` save/load with `.bak` backup, NVENC detection
+- **`src-tauri/src/library.rs`** — file-backed project library: atomic document and media-cache writes with `.bak` recovery, project index, profiling report writer
+- **`src-tauri/src/metrics.rs`** — working-set probe for the editor and its FFmpeg children
 - **`src-tauri/src/ffmpeg.rs`** — sidecar/override/PATH resolution, `runtime_status` reporting, probe helper, shared helpers
 
 ### Frontend (React 19 + TypeScript + Zustand + Tailwind v4)
@@ -20,17 +22,21 @@ The current project milestone is the **v0.3 development preview**. It includes t
 - `src/lib/firstRun.ts` — onboarding state with safe localStorage fallbacks
 - `src/features/editor/Editor.tsx` — layout, autosave (debounced + `beforeunload`), keyboard shortcuts
 - `src/features/editor/Preview.tsx` — media element pool → 2D canvas compositor → Web Audio gain graph
-- `src/features/editor/Timeline.tsx` — multi-track timeline, move/trim/split/snapping/zoom
+- `src/features/editor/Timeline.tsx` — multi-track timeline, move/trim/split/snapping/zoom, windowed clip rendering
 - `src/features/editor/MediaPanel.tsx` — import, media/text/audio tabs, asset cards
 - `src/features/editor/Inspector.tsx` — clip timing, transform, opacity, volume, typography
 - `src/features/editor/ExportDialog.tsx` — size presets, encoder choice, progress/cancel
+- `src/features/editor/PerformancePanel.tsx` — live timing and memory readout, profiling report export
 - Effects, LUTs, templates, plugins, AI tools, and update controls are implemented across the editor and home/settings features.
 - `src/components/Modal.tsx`, `Toast.tsx`, `Slider.tsx`, `Waveform.tsx`, `Logo.tsx`, `TopBar.tsx`
 - `src/lib/hydrate.ts` — re-registers media paths on project open, rebuilds proxies
 
 ### Data & persistence
-- `src/stores/projects.ts` — localStorage autosave index + project data, crash-safe slim fallbacks
+- `src/lib/projectStore.ts` — async file-backed project library with a local-storage fallback, project/media-cache split, legacy migration
 - `src/stores/editor.ts` — Zustand + Immer project store, undo/redo (100 deep), selection, zoom
+- `src/lib/timelineIndex.ts` — per-track clip index used to find the on-screen clips without scanning the project
+- `src/lib/snap.ts` — sorted snap boundaries with a binary-search lookup
+- `src/lib/metrics.ts` — timing and memory metrics with rolling percentiles
 - `src/lib/types.ts` — shared TS types for project, clip, track, export
 - `src/lib/time.ts` — clock formatting, snapping, duration math
 
@@ -56,13 +62,12 @@ The current project milestone is the **v0.3 development preview**. It includes t
 | --- | --- |
 | `pnpm check` | ✅ pass |
 | `pnpm build` | ✅ pass |
-| `pnpm test` | ✅ 14 unit tests pass |
+| `pnpm test` | ✅ 95 unit tests pass |
 | `cargo fmt --check` | ✅ pass |
 | `cargo clippy --all-targets -- -D warnings` | ✅ pass |
-| `cargo test` with `LIBRECUT_REQUIRE_FFMPEG=1` | ✅ 7 real-media probe/waveform/overlay/mask/export tests pass |
+| `cargo test` with `LIBRECUT_REQUIRE_FFMPEG=1` | ✅ 23 real-media probe/waveform/overlay/export/library tests pass |
 | `pnpm tauri dev` | ✅ Vite alive, Tauri window opens (title "LibreCut") |
-| `pnpm tauri build` | ✅ NSIS 59.1 MiB and MSI 79.4 MiB with FFmpeg 9.0.2 sidecars |
-| `scripts/verify-installer.ps1 -InstallTest` | ✅ silent NSIS install and MSI administrative install contain the app, sidecars, and legal files |
+| project library round trip | ✅ documents and media caches stored under the app data folder, with `.bak` recovery |
 
 These results record the verified development run. The Windows installer checks do not verify macOS or Linux packages; installing, launching, editing, and exporting on supported systems remains open in the roadmap.
 
@@ -82,7 +87,8 @@ Useful commands:
 ## Current open work
 
 - Verify macOS Intel DMG and Ubuntu 22.04 x64 DEB/AppImage installation, launch, project editing, and export on supported systems.
-- v1.0 release quality: long-timeline and 4K performance, accessibility, signed installers, reproducible builds, UI localization, and documentation/tutorials.
+- v1.0 release quality: accessibility, signed installers, reproducible builds, UI localization, and documentation/tutorials.
+- Performance hardening is in place for long timelines and 4K sources. The remaining step is to capture the numbers on the reference machine and compare them with the targets in `docs/performance.md`.
 
 Deferred or explicitly out of scope include motion tracking, nested sequences, multi-cam editing, cloud sync, and mobile builds; see [ROADMAP.md](ROADMAP.md) for the current roadmap and non-goals.
 

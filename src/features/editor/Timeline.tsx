@@ -26,13 +26,18 @@ import {
   assetForClip,
   useEditor,
 } from "../../stores/editor";
-import { clamp, formatClock, projectDuration, snapTime } from "../../lib/time";
+import { cachedProjectDuration, clamp, formatClock } from "../../lib/time";
+import { buildSnapBoundaries, snapToBoundary, visibleTimeRange } from "../../lib/snap";
+import { recordMetric } from "../../lib/metrics";
 import { DEFAULT_DUCKING } from "../../lib/audio";
 import type { Asset, Clip, Track, TrackKind } from "../../lib/types";
 
 const LABEL_WIDTH = 154;
 const MIN_ZOOM = 12;
 const MAX_ZOOM = 320;
+
+/** Extra seconds rendered on each side of the viewport. */
+const VISIBLE_MARGIN_SECONDS = 4;
 
 function trackHeight(kind: TrackKind): number {
   if (kind === "misc") return 60;
@@ -98,8 +103,9 @@ export function Timeline({ height = 310 }: { height?: number }) {
   const scrubRef = useRef(false);
   const [dragging, setDragging] = useState(false);
   const [dropTrack, setDropTrack] = useState<string | null>(null);
+  const [viewport, setViewport] = useState({ left: 0, right: 0 });
 
-  const duration = project ? projectDuration(project.tracks) : 0;
+  const duration = project ? cachedProjectDuration(project.tracks) : 0;
   const timelineDuration = Math.max(30, duration + 8);
   const contentWidth = Math.max(400, timelineDuration * zoom);
   const step = rulerStep(zoom);
@@ -120,39 +126,114 @@ export function Timeline({ height = 310 }: { height?: number }) {
     return result;
   }, [step, timelineDuration]);
 
-  const clipBoundaries = useMemo(() => {
-    if (!project) return [];
-    const values = [0, currentTime];
+  // Only the clips that are on screen are rendered. A long timeline holds
+  // thousands of clips, and giving each one a DOM node makes every edit
+  // re-render far more than the viewport can show.
+  const visibleRange = useMemo(() => {
+    if (!project) return { start: 0, end: 0 };
+    const total = cachedProjectDuration(project.tracks, 0);
+    return visibleTimeRange(
+      viewport.left,
+      viewport.right ? viewport.right - viewport.left : 0,
+      zoom,
+      LABEL_WIDTH,
+      total,
+      VISIBLE_MARGIN_SECONDS,
+    );
+  }, [project, viewport, zoom]);
+
+  const visibleClips = useMemo(() => {
+    if (!project) return new Map<string, Clip[]>();
+    const grouped = new Map<string, Clip[]>();
     for (const track of project.tracks) {
-      for (const clip of track.clips) {
-        values.push(clip.start, clip.start + clip.duration);
-      }
+      const clips = track.clips.filter(
+        (clip) => clip.start <= visibleRange.end && clip.start + clip.duration >= visibleRange.start,
+      );
+      if (clips.length) grouped.set(track.id, clips);
     }
-    return values;
-  }, [project, currentTime]);
+    return grouped;
+  }, [project, visibleRange]);
+
+  // The ruler is only drawn where it can be seen. A one-second step over a
+  // one-hour timeline would otherwise create thousands of ruler marks.
+  const visibleTicks = useMemo(() => {
+    if (!viewport.right) return ticks;
+    // A tick at time t sits one label width into the scrolled content.
+    const first = Math.max(0, Math.floor((viewport.left - LABEL_WIDTH) / zoom / step) - 1);
+    const last = Math.min(ticks.length - 1, Math.ceil((viewport.right - LABEL_WIDTH) / zoom / step) + 1);
+    return ticks.slice(first, last + 1);
+  }, [ticks, viewport, step, zoom]);
+
+  // The boundaries only change when a clip starts or ends somewhere else, so
+  // they are rebuilt from a signature of the clip layout rather than from the
+  // project object, which changes on every edit.
+  const clipLayout = useMemo(
+    () => project?.tracks.map((track) => track.clips.map((clip) => `${clip.start}:${clip.duration}`).join(",")).join("|") ?? "",
+    [project],
+  );
+  const clipBoundaries = useMemo(
+    () =>
+      project
+        ? buildSnapBoundaries(project.tracks.flatMap((track) => track.clips), [0, currentTime])
+        : { values: [] as number[] },
+    // The layout signature captures every start and duration.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [clipLayout],
+  );
+
+  // The boundaries are captured when a drag starts. The dragged clip moves on
+  // every pointer move, so rebuilding the sorted list each frame would cost
+  // more than the drag itself.
+  const dragBoundariesRef = useRef<{ values: number[] } | null>(null);
+
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      setViewport({ left: element.scrollLeft, right: element.scrollLeft + element.clientWidth });
+    };
+    const onScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(update);
+    };
+    update();
+    element.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      element.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, []);
 
   useEffect(() => {
     const onMove = (event: PointerEvent) => {
       const drag = dragRef.current;
       if (!drag) return;
+      const frameStarted = performance.now();
       const delta = (event.clientX - drag.startX) / zoom;
       const threshold = 9 / zoom;
       const state = useEditor.getState();
-      const candidates = clipBoundaries.filter((value) => Math.abs(value - drag.originalStart) > 0.001);
+      const boundaries = dragBoundariesRef.current ?? clipBoundaries;
 
       if (drag.mode === "move") {
         let next = Math.max(0, drag.originalStart + delta);
-        if (state.snap) next = Math.max(0, snapTime(next, candidates, threshold));
+        if (state.snap) next = Math.max(0, snapToBoundary(next, boundaries, threshold));
         state.updateClip(drag.clipId, { start: next }, false);
       } else if (drag.mode === "trim-start") {
         let next = Math.max(0, drag.originalStart + delta);
-        if (state.snap) next = snapTime(next, candidates, threshold);
+        if (state.snap) next = snapToBoundary(next, boundaries, threshold);
         state.trimClip(drag.clipId, "start", next);
       } else {
         let next = Math.max(0, drag.originalStart + drag.originalDuration + delta);
-        if (state.snap) next = snapTime(next, candidates, threshold);
+        if (state.snap) next = snapToBoundary(next, boundaries, threshold);
         state.trimClip(drag.clipId, "end", next);
       }
+      // The handler time is what the user feels while dragging, so it is
+      // recorded separately from the render that follows it.
+      recordMetric("timeline drag", performance.now() - frameStarted);
     };
 
     const onUp = (event: PointerEvent) => {
@@ -168,11 +249,13 @@ export function Timeline({ height = 310 }: { height?: number }) {
         }
       }
       dragRef.current = null;
+      dragBoundariesRef.current = null;
       setDragging(false);
     };
     const onCancel = () => {
       if (!dragRef.current) return;
       dragRef.current = null;
+      dragBoundariesRef.current = null;
       setDragging(false);
     };
 
@@ -227,6 +310,9 @@ export function Timeline({ height = 310 }: { height?: number }) {
       originalStart: clip.start,
       originalDuration: clip.duration,
     };
+    // The snap candidates are captured once, so a drag does not rebuild the
+    // sorted list on every pointer move.
+    dragBoundariesRef.current = clipBoundaries;
     setDragging(true);
   };
 
@@ -272,10 +358,11 @@ export function Timeline({ height = 310 }: { height?: number }) {
       if (!targetElement) return;
       const rect = targetElement.getBoundingClientRect();
       let time = Math.max(0, (clientX - rect.left) / state.zoom);
-      const boundaries = [0, state.currentTime, ...currentProject.tracks.flatMap((item) =>
-        item.clips.flatMap((clip) => [clip.start, clip.start + clip.duration]),
-      )];
-      if (state.snap) time = Math.max(0, snapTime(time, boundaries, 9 / state.zoom));
+      const boundaries = buildSnapBoundaries(
+        currentProject.tracks.flatMap((item) => item.clips),
+        [0, state.currentTime],
+      );
+      if (state.snap) time = Math.max(0, snapToBoundary(time, boundaries, 9 / state.zoom));
       state.recordSnapshot();
       state.addClip(assetId, targetTrack.id, time);
       setDropTrack(null);
@@ -374,7 +461,7 @@ export function Timeline({ height = 310 }: { height?: number }) {
               style={{ width: contentWidth }}
               onPointerDown={beginScrub}
             >
-              {ticks.map((time) => (
+              {visibleTicks.map((time) => (
                 <div key={time} className="absolute top-0 h-full" style={{ left: time * zoom }}>
                   <div className="h-2 w-px bg-line" />
                   <span className="absolute left-1 top-2 whitespace-nowrap font-mono text-[9px] text-dim">
@@ -471,8 +558,9 @@ export function Timeline({ height = 310 }: { height?: number }) {
                   }}
                   onPointerDown={beginScrub}
                 >
-                  {track.clips
-                    .slice()
+                  {visibleClips
+                    .get(track.id)
+                    ?.slice()
                     .sort((a, b) => a.start - b.start)
                     .map((clip) => (
                       <TimelineClip

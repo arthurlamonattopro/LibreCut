@@ -15,6 +15,29 @@ export function projectDuration(
   return Math.max(minimum, end);
 }
 
+/**
+ * Caches the project duration for a track list.
+ *
+ * Several components need the duration on every render, and recalculating it
+ * means walking every clip. The result is memoized per track array, so it is
+ * recomputed only when the timeline actually changes.
+ */
+export function cachedProjectDuration(
+  tracks: Array<{ clips: Array<{ start: number; duration: number }> }>,
+  minimum = 8,
+): number {
+  const cached = durationCache.get(tracks);
+  if (cached && cached.minimum === minimum) return cached.value;
+  const value = projectDuration(tracks, minimum);
+  durationCache.set(tracks, { value, minimum });
+  return value;
+}
+
+const durationCache = new WeakMap<
+  object,
+  { value: number; minimum: number }
+>();
+
 export function formatClock(seconds: number, fps = 30): string {
   const safe = Math.max(0, seconds);
   const whole = Math.floor(safe);

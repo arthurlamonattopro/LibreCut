@@ -6,23 +6,35 @@ import { Inspector } from "./Inspector";
 import { Timeline } from "./Timeline";
 import { ExportDialog } from "./ExportDialog";
 import { AiStudio } from "./AiStudio";
+import { PerformancePanel } from "./PerformancePanel";
 import { useEditor } from "../../stores/editor";
-import { persistProject } from "../../stores/projects";
+import { persistProject } from "../../lib/projectStore";
 import { pickProjectPath, saveProjectFile } from "../../lib/media";
+import { recordMetric } from "../../lib/metrics";
 import { toast } from "../../components/Toast";
+import type { Project } from "../../lib/types";
+
+const AUTOSAVE_DELAY_MS = 700;
 
 export function Editor({ onBack }: { onBack: () => void }) {
   const project = useEditor((state) => state.project);
   const dirty = useEditor((state) => state.dirty);
+  const mediaRevision = useEditor((state) => state.mediaRevision);
   const markSaved = useEditor((state) => state.markSaved);
   const [exportOpen, setExportOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [performanceOpen, setPerformanceOpen] = useState(false);
   const [aiTool, setAiTool] = useState<"captions" | "speech" | "background">("captions");
   const [aiImageId, setAiImageId] = useState<string | undefined>();
   const [saving, setSaving] = useState(false);
   const [mediaWidth, setMediaWidth] = useState(() => Number(localStorage.getItem("librecut:media-width")) || 256);
   const [inspectorWidth, setInspectorWidth] = useState(() => Number(localStorage.getItem("librecut:inspector-width")) || 280);
   const [timelineHeight, setTimelineHeight] = useState(() => Number(localStorage.getItem("librecut:timeline-height")) || 310);
+  // A save in flight must not be overwritten by a newer one, so writes are
+  // queued and the newest snapshot always wins.
+  const pendingSaveRef = useRef<Project | null>(null);
+  const savingRef = useRef(false);
+  const savedMediaRevisionRef = useRef(0);
 
   const saveCopy = useCallback(async () => {
     const current = useEditor.getState().project;
@@ -37,6 +49,33 @@ export function Editor({ onBack }: { onBack: () => void }) {
     }
   }, []);
 
+  const flushSave = useCallback(async () => {
+    if (savingRef.current) return;
+    const snapshot = pendingSaveRef.current;
+    if (!snapshot) return;
+    pendingSaveRef.current = null;
+    savingRef.current = true;
+    setSaving(true);
+    const started = performance.now();
+    try {
+      // The media caches live next to the project document, so they are only
+      // written when they changed.
+      const mediaRevision = useEditor.getState().mediaRevision;
+      const cacheChanged = mediaRevision !== savedMediaRevisionRef.current;
+      await persistProject(snapshot, cacheChanged);
+      savedMediaRevisionRef.current = mediaRevision;
+      recordMetric("project save", performance.now() - started);
+      // A newer edit may have arrived while this save was running.
+      if (!pendingSaveRef.current) markSaved();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not save the project.", "error");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+      if (pendingSaveRef.current) void flushSave();
+    }
+  }, [markSaved]);
+
   useEffect(() => {
     if (!project || !dirty) {
       setSaving(false);
@@ -45,29 +84,28 @@ export function Editor({ onBack }: { onBack: () => void }) {
     setSaving(true);
     const timer = window.setTimeout(() => {
       const latest = useEditor.getState().project;
-      if (latest) {
-        persistProject(latest);
-        markSaved();
-      }
-      setSaving(false);
-    }, 700);
+      if (!latest) return;
+      pendingSaveRef.current = latest;
+      void flushSave();
+    }, AUTOSAVE_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [project, dirty, markSaved]);
+  }, [project, dirty, mediaRevision, flushSave]);
 
   useEffect(() => {
     const flush = () => {
       const latest = useEditor.getState().project;
-      if (latest) persistProject(latest);
+      if (latest) pendingSaveRef.current = latest;
+      void flushSave();
     };
     window.addEventListener("beforeunload", flush);
     return () => {
       window.removeEventListener("beforeunload", flush);
       flush();
     };
-  }, []);
+  }, [flushSave]);
 
   useEffect(() => {
-    if (project) document.title = `${project.name} ÔÇö LibreCut`;
+    if (project) document.title = `${project.name} — LibreCut`;
     return () => {
       document.title = "LibreCut";
     };
@@ -177,15 +215,19 @@ export function Editor({ onBack }: { onBack: () => void }) {
 
   if (!project) return null;
 
-  const goBack = () => {
+  const goBack = async () => {
     useEditor.getState().setPlaying(false);
-    persistProject(project);
+    const latest = useEditor.getState().project;
+    if (latest) {
+      pendingSaveRef.current = latest;
+      await flushSave();
+    }
     onBack();
   };
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-surface">
-      <TopBar onBack={goBack} onExport={() => setExportOpen(true)} onSaveCopy={() => void saveCopy()} onAiTools={() => setAiOpen(true)} saving={saving} />
+      <TopBar onBack={goBack} onExport={() => setExportOpen(true)} onSaveCopy={() => void saveCopy()} onAiTools={() => setAiOpen(true)} onShowPerformance={() => setPerformanceOpen(true)} saving={saving} />
       <div className="flex min-h-0 flex-1">
         <MediaPanel width={mediaWidth} onOpenAi={(tool, imageId) => { setAiTool(tool); setAiImageId(imageId); setAiOpen(true); }} />
         <ResizeHandle axis="x" onResize={(delta) => setMediaWidth((value) => Math.max(180, Math.min(480, value + delta)))} onCommit={(value) => localStorage.setItem("librecut:media-width", String(value))} value={mediaWidth} />
@@ -197,6 +239,7 @@ export function Editor({ onBack }: { onBack: () => void }) {
       <Timeline height={timelineHeight} />
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
       <AiStudio open={aiOpen} onClose={() => setAiOpen(false)} initialTool={aiTool} initialImageId={aiImageId} />
+      <PerformancePanel open={performanceOpen} onClose={() => setPerformanceOpen(false)} />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { produce } from "immer";
 import { create } from "zustand";
 import type { Asset, AudioCompressor, Clip, ColorEffectOptions, LutSettings, Project, TextOptions, Track, TrackKind } from "../lib/types";
-import { clamp, projectDuration } from "../lib/time";
+import { clamp, cachedProjectDuration } from "../lib/time";
 import { compactMagneticTrack, findClip, removeClip, rippleTrimEnd, rippleTrimStart, settleMagneticTracks } from "../lib/timeline";
 import { sliceSpeedRamp } from "../lib/speed";
 import {
@@ -30,6 +30,12 @@ interface EditorState {
   ripple: boolean;
   dirty: boolean;
   savedAt: number;
+  /**
+   * Counts changes to the regenerable media caches. The caches are stored
+   * apart from the project document, so the editor writes them out when this
+   * number changes.
+   */
+  mediaRevision: number;
   undoStack: Project[];
   redoStack: Project[];
 
@@ -112,13 +118,31 @@ function createLayer(project: Project, kind: TrackKind): Track {
   return track;
 }
 
+/**
+ * The number of undo steps to keep.
+ *
+ * The clip count is read from a cached total, because this runs on every
+ * mutation and counting the clips of a long timeline each time would cost
+ * more than the edit itself.
+ */
 function historyLimit(project: Project): number {
-  const clips = project.tracks.reduce((total, track) => total + track.clips.length, 0);
+  const clips = cachedClipCount(project);
   if (clips > 2_000 || project.assets.length > 500) return 8;
   if (clips > 800 || project.assets.length > 200) return 16;
   if (clips > 300 || project.assets.length > 80) return 32;
   return 100;
 }
+
+/** Counts the clips of a project, memoized per track array. */
+function cachedClipCount(project: Project): number {
+  const cached = clipCountCache.get(project.tracks);
+  if (cached !== undefined) return cached;
+  const count = project.tracks.reduce((total, track) => total + track.clips.length, 0);
+  clipCountCache.set(project.tracks, count);
+  return count;
+}
+
+const clipCountCache = new WeakMap<Track[], number>();
 
 export const useEditor = create<EditorState>((set, get) => ({
   project: null,
@@ -130,6 +154,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   ripple: false,
   dirty: false,
   savedAt: Date.now(),
+  mediaRevision: 0,
   undoStack: [],
   redoStack: [],
 
@@ -179,6 +204,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         project.assets.push(asset);
       }
     });
+    set({ mediaRevision: get().mediaRevision + 1 });
   },
 
   replaceAsset: (assetId, patch) => {
@@ -186,6 +212,11 @@ export const useEditor = create<EditorState>((set, get) => ({
       const asset = project.assets.find((item) => item.id === assetId);
       if (asset) Object.assign(asset, patch);
     }, false);
+    // Poster frames and waveforms are stored apart from the project document,
+    // so a change to them has to be written out separately.
+    if (patch.thumbnails || patch.waveform) {
+      set({ mediaRevision: get().mediaRevision + 1 });
+    }
   },
 
   removeAsset: (assetId) => {
@@ -195,6 +226,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         track.clips = track.clips.filter((clip) => clip.assetId !== assetId);
       }
     });
+    set({ mediaRevision: get().mediaRevision + 1 });
   },
 
   addClip: (assetId, trackId, start) => {
@@ -426,22 +458,22 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   updateClip: (clipId, patch, record = true) => {
     get().mutate((project) => {
-      for (const track of project.tracks) {
-        const clip = track.clips.find((item) => item.id === clipId);
-        if (!clip) continue;
-        const { text: textPatch, effect: effectPatch, compressor: compressorPatch, ...rest } = patch;
-        if (textPatch && clip.text) {
-          clip.text = { ...clip.text, ...textPatch };
-        }
-        if (effectPatch && clip.effect) {
-          clip.effect = { ...clip.effect, ...effectPatch };
-        }
-        if (compressorPatch) {
-          clip.compressor = { ...DEFAULT_COMPRESSOR, ...clip.compressor, ...compressorPatch };
-        }
-        Object.assign(clip, rest);
-        return;
+      // The clip is located through the index, because a drag updates the
+      // clip on every pointer move.
+      const location = clipIndex(project.tracks).get(clipId);
+      if (!location) return;
+      const clip = location.clip;
+      const { text: textPatch, effect: effectPatch, compressor: compressorPatch, ...rest } = patch;
+      if (textPatch && clip.text) {
+        clip.text = { ...clip.text, ...textPatch };
       }
+      if (effectPatch && clip.effect) {
+        clip.effect = { ...clip.effect, ...effectPatch };
+      }
+      if (compressorPatch) {
+        clip.compressor = { ...DEFAULT_COMPRESSOR, ...clip.compressor, ...compressorPatch };
+      }
+      Object.assign(clip, rest);
     }, record);
   },
 
@@ -456,9 +488,12 @@ export const useEditor = create<EditorState>((set, get) => ({
     const minDuration = 0.1;
 
     get().mutate((draft) => {
-      const draftFound = findClip(draft, clipId);
-      if (!draftFound) return;
-      const { track, clip: draftClip } = draftFound;
+      // The draft has the same clip layout as the project, so the location
+      // found above still points at the right clip.
+      const location = clipIndex(draft.tracks).get(clipId);
+      if (!location) return;
+      const track = location.track;
+      const draftClip = location.clip;
       const ripple = state.ripple || Boolean(track.magnetic);
       const originalDuration = draftClip.duration;
 
@@ -593,7 +628,9 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   setCurrentTime: (time) => {
     const project = get().project;
-    const duration = project ? projectDuration(project.tracks) + 4 : 0;
+    // The playhead moves on every animation frame, so the duration is
+    // memoized rather than recomputed over every clip.
+    const duration = project ? cachedProjectDuration(project.tracks) + 4 : 0;
     set({ currentTime: clamp(time, 0, duration) });
   },
 
@@ -684,18 +721,50 @@ export const useEditor = create<EditorState>((set, get) => ({
 
 export function selectedClip(state: EditorState): Clip | null {
   if (!state.project || !state.selectedClipId) return null;
-  for (const track of state.project.tracks) {
-    const clip = track.clips.find((item) => item.id === state.selectedClipId);
-    if (clip) return clip;
-  }
-  return null;
+  return clipIndex(state.project.tracks).get(state.selectedClipId)?.clip ?? null;
 }
 
 export function selectedTrackOfClip(state: EditorState): Track | null {
   if (!state.project || !state.selectedClipId) return null;
-  return state.project.tracks.find((track) => track.clips.some((clip) => clip.id === state.selectedClipId)) ?? null;
+  return clipIndex(state.project.tracks).get(state.selectedClipId)?.track ?? null;
 }
 
-export function assetForClip(project: Project, clip: Clip): Asset | undefined {
-  return clip.assetId ? project.assets.find((asset) => asset.id === clip.assetId) : undefined;
+/**
+ * Maps every clip id to its track and position.
+ *
+ * The selection is resolved on every store update, and scanning the whole
+ * timeline for it would cost O(clips) per change.
+ */
+function clipIndex(tracks: Track[]): Map<string, { track: Track; clip: Clip; index: number }> {
+  const cached = clipIndexCache.get(tracks);
+  if (cached) return cached;
+  const index = new Map<string, { track: Track; clip: Clip; index: number }>();
+  for (const track of tracks) {
+    for (let position = 0; position < track.clips.length; position += 1) {
+      const clip = track.clips[position];
+      index.set(clip.id, { track, clip, index: position });
+    }
+  }
+  clipIndexCache.set(tracks, index);
+  return index;
 }
+
+const clipIndexCache = new WeakMap<Track[], Map<string, { track: Track; clip: Clip; index: number }>>();
+
+/**
+ * Looks up the asset of a clip.
+ *
+ * The asset list is searched with a map, because the timeline asks for the
+ * asset of every clip it renders and a linear scan would be O(clips x assets)
+ * on a long timeline.
+ */
+export function assetForClip(project: Project, clip: Clip): Asset | undefined {
+  if (!clip.assetId) return undefined;
+  const cached = assetIndexCache.get(project.assets);
+  if (cached) return cached.get(clip.assetId);
+  const index = new Map(project.assets.map((asset) => [asset.id, asset]));
+  assetIndexCache.set(project.assets, index);
+  return index.get(clip.assetId);
+}
+
+const assetIndexCache = new WeakMap<Asset[], Map<string, Asset>>();

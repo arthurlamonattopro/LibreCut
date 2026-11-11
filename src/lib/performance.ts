@@ -1,4 +1,6 @@
-/** Development-only timing helpers for profiling representative projects. */
+/**
+ * Development-only timing helpers for profiling representative projects.
+ */
 export function logSlowOperation(
   operation: string,
   startedAt: number,
@@ -26,7 +28,7 @@ export function projectProfile(project: {
   };
 }
 
-/** Install once at startup; supported browsers report main-thread stalls >= 50 ms. */
+/** Install once at startup; supported browsers report main-thread tasks of at least 50 ms. */
 export function observeLongTasks(): void {
   if (!import.meta.env.DEV || typeof PerformanceObserver === "undefined") return;
   try {

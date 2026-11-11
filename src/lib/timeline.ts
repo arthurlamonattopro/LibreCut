@@ -56,7 +56,6 @@ export function findClip(project: Project, clipId: string): { track: Track; clip
   }
   return null;
 }
-
 /**
  * Removes a clip and, when ripple is enabled, closes the resulting gap across
  * every unlocked track so sync stays intact.

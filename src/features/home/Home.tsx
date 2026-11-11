@@ -16,7 +16,15 @@ import {
 import { Modal } from "../../components/Modal";
 import { Logo } from "../../components/Logo";
 import { toast } from "../../components/Toast";
-import { createProject, deleteProject, listProjects, loadProject as loadProjectById, persistProject } from "../../stores/projects";
+import { createProject } from "../../stores/projects";
+import {
+  clearAllProjects,
+  deleteProject,
+  listProjects,
+  loadProject as loadProjectById,
+  migrateLegacyProjects,
+  persistProject,
+} from "../../lib/projectStore";
 import { getRuntimeStatus, loadProjectFile, pickProjectToOpen, saveProjectFile } from "../../lib/media";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
@@ -90,7 +98,9 @@ export function Home({ onOpenProject }: HomeProps) {
   const [updateStatus, setUpdateStatus] = useState("");
   const [customTemplates, setCustomTemplates] = useState<ProjectTemplate[]>(readCustomTemplates);
 
-  const refresh = () => setProjects(listProjects());
+  const refresh = () => {
+    void listProjects().then(setProjects).catch(() => setProjects([]));
+  };
 
   const refreshRuntime = async () => {
     setCheckingRuntime(true);
@@ -104,12 +114,19 @@ export function Home({ onOpenProject }: HomeProps) {
   };
 
   useEffect(() => {
-    const existing = listProjects();
-    setProjects(existing);
-    // Existing users should not see onboarding just because this flag is new.
-    if (existing.length === 0 && !hasSeenFirstRun()) {
-      setFirstRunOpen(true);
-    }
+    // Projects saved by an earlier build live in local storage. Move them
+    // into the file-backed library before the list is shown.
+    void migrateLegacyProjects()
+      .catch(() => 0)
+      .then(() => listProjects())
+      .then((existing) => {
+        setProjects(existing);
+        // Existing users should not see onboarding just because this flag is new.
+        if (existing.length === 0 && !hasSeenFirstRun()) {
+          setFirstRunOpen(true);
+        }
+      })
+      .catch(() => setProjects([]));
   }, []);
 
   useEffect(() => {
@@ -182,19 +199,19 @@ export function Home({ onOpenProject }: HomeProps) {
     setNewOpen(true);
   };
 
-  const openProject = (id: string) => {
-    const project = loadProjectById(id);
+  const openProject = async (id: string) => {
+    const project = await loadProjectById(id);
     if (!project) {
-      toast("That project could not be found in local storage.", "error");
+      toast("That project could not be found in the project library.", "error");
       return;
     }
     onOpenProject(project);
   };
 
-  const handleCreate = (name: string, aspect: Aspect, resolution: Resolution, fps: number, template?: ProjectTemplate) => {
+  const handleCreate = async (name: string, aspect: Aspect, resolution: Resolution, fps: number, template?: ProjectTemplate) => {
     const { width, height } = dimensions(aspect, resolution);
     const project = template ? createProjectFromTemplate(template, name) : createProject(name, width, height, fps);
-    persistProject(project);
+    await persistProject(project);
     setNewOpen(false);
     onOpenProject(project);
   };
@@ -226,23 +243,23 @@ export function Home({ onOpenProject }: HomeProps) {
         throw new Error("Unsupported project file");
       }
       normalizeProject(project);
-      persistProject(project);
+      await persistProject(project);
       onOpenProject(project);
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not open that project.", "error");
     }
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleteTarget) return;
-    deleteProject(deleteTarget.id);
+    await deleteProject(deleteTarget.id);
     setDeleteTarget(null);
     refresh();
     toast("Project deleted.", "success");
   };
 
-  const confirmClear = () => {
-    for (const project of projects) deleteProject(project.id);
+  const confirmClear = async () => {
+    await clearAllProjects();
     setProjects([]);
     setClearOpen(false);
     toast("Local project data cleared.", "success");

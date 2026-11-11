@@ -6,6 +6,7 @@ import {
   createProxy,
   generateThumbnails,
   generateWaveform,
+  isTauri,
   pickMediaFiles,
   registerMedia,
 } from "../../lib/media";
@@ -100,6 +101,25 @@ export function useMediaImport() {
           logSlowOperation("media probe", probeStarted, {
             width: info.width, height: info.height, bytes: info.sizeBytes,
           });
+
+          // The asset appears as soon as it is probed. Poster frames and the
+          // waveform are filled in afterwards, so the editor stays usable
+          // while a 4K source is analyzed.
+          const asset: Asset = {
+            id: crypto.randomUUID(),
+            name: info.name,
+            path,
+            mediaId: registered.id,
+            previewMediaId: registered.id,
+            proxyStatus: "none",
+            info,
+            thumbnails: [],
+            waveform: [],
+            importedAt: Date.now(),
+          };
+          addAsset(asset);
+          toast(`Imported ${info.name}`, "success");
+
           const analysisStarted = performance.now();
           const [thumbnails, waveform] = await Promise.all([
             generateThumbnails(path).catch(() => [] as string[]),
@@ -109,21 +129,9 @@ export function useMediaImport() {
             thumbnails: thumbnails.length, waveformSamples: waveform.length,
             width: info.width, height: info.height,
           });
-
-          const asset: Asset = {
-            id: crypto.randomUUID(),
-            name: info.name,
-            path,
-            mediaId: registered.id,
-            previewMediaId: registered.id,
-            proxyStatus: "none",
-            info,
-            thumbnails,
-            waveform,
-            importedAt: Date.now(),
-          };
-          addAsset(asset);
-          toast(`Imported ${info.name}`, "success");
+          if (thumbnails.length || waveform.length) {
+            replaceAsset(asset.id, { thumbnails, waveform });
+          }
 
           if (needsProxy(info)) {
             replaceAsset(asset.id, { proxyStatus: "generating" });
@@ -164,6 +172,9 @@ export function useMediaImport() {
 
   useEffect(() => {
     let dispose: (() => void) | undefined;
+    // Drag and drop is a desktop-only feature. Outside Tauri the webview
+    // call throws synchronously, which would take the editor down with it.
+    if (!isTauri) return;
     void getCurrentWebview()
       .onDragDropEvent((event) => {
         switch (event.payload.type) {

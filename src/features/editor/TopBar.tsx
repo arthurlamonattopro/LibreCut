@@ -1,4 +1,4 @@
-import { ChevronLeft, Download, Loader2, Sparkles, Upload } from "lucide-react";
+import { Activity, ChevronLeft, Download, Loader2, Sparkles, Upload } from "lucide-react";
 import { Logo } from "../../components/Logo";
 import { useEditor } from "../../stores/editor";
 
@@ -7,10 +7,11 @@ interface TopBarProps {
   onExport: () => void;
   onSaveCopy: () => void;
   onAiTools: () => void;
+  onShowPerformance: () => void;
   saving: boolean;
 }
 
-export function TopBar({ onBack, onExport, onSaveCopy, onAiTools, saving }: TopBarProps) {
+export function TopBar({ onBack, onExport, onSaveCopy, onAiTools, onShowPerformance, saving }: TopBarProps) {
   const project = useEditor((state) => state.project);
   const renameProject = useEditor((state) => state.renameProject);
   const recordSnapshot = useEditor((state) => state.recordSnapshot);
@@ -50,6 +51,14 @@ export function TopBar({ onBack, onExport, onSaveCopy, onAiTools, saving }: TopB
         </span>
         <button className="btn btn-ghost btn-sm" onClick={onSaveCopy} title="Save a .librecut copy (Ctrl+S)">
           <Download size={14} /> <span className="hidden sm:inline">Save copy</span>
+        </button>
+        <button
+          className="btn btn-ghost btn-icon"
+          onClick={onShowPerformance}
+          title="Performance diagnostics"
+          aria-label="Performance diagnostics"
+        >
+          <Activity size={14} />
         </button>
         <button className="btn btn-secondary btn-sm" onClick={onAiTools} title="Transcription and text to speech">
           <Sparkles size={14} /> <span className="hidden sm:inline">AI tools</span>

@@ -21,7 +21,7 @@ import {
   useEditor,
   type ClipPatch,
 } from "../../stores/editor";
-import { clamp, formatClock, formatDuration, projectDuration } from "../../lib/time";
+import { cachedProjectDuration, clamp, formatClock, formatDuration } from "../../lib/time";
 import { MAX_SPEED, MIN_SPEED, normalizeSpeedRamp, speedAt } from "../../lib/speed";
 import type { Clip, KeyframeProperty, SpeedPoint, Track, TransitionType } from "../../lib/types";
 import { DEFAULT_COMPRESSOR, DEFAULT_DUCKING } from "../../lib/audio";
@@ -250,7 +250,7 @@ export function Inspector({ width = 280 }: { width?: number }) {
 
   if (!project) return null;
 
-  const total = projectDuration(project.tracks, 0);
+  const total = cachedProjectDuration(project.tracks, 0);
 
   return (
     <aside style={{ width }} className="flex shrink-0 flex-col border-l border-line-soft bg-panel">

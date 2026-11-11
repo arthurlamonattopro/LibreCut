@@ -222,6 +222,7 @@ fn request(output: &Path, clips: Vec<ExportClip>, duration: f64) -> ExportReques
             lut: None,
         }],
         encoder: Some("libx264".to_string()),
+        quality: Some("draft".to_string()),
     }
 }
 

@@ -362,3 +362,24 @@ export interface RuntimeStatus {
   ffmpeg: RuntimeToolStatus;
   ffprobe: RuntimeToolStatus;
 }
+
+/** Summary of a project held in the on-disk project library. */
+export interface StoredProjectSummary {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  fps: number;
+  createdAt: number;
+  updatedAt: number;
+  duration: number;
+}
+
+/** Memory footprint of the editor and of the FFmpeg children it spawned. */
+export interface MemorySnapshot {
+  appWorkingSetBytes: number;
+  appPeakWorkingSetBytes: number;
+  ffmpegWorkingSetBytes: number;
+  ffmpegPeakWorkingSetBytes: number;
+  ffmpegProcessCount: number;
+}

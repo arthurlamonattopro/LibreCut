@@ -1,6 +1,8 @@
 pub mod export;
 pub mod ffmpeg;
+pub mod library;
 pub mod media;
+pub mod metrics;
 pub mod models;
 pub mod project;
 
@@ -11,6 +13,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(media::MediaRegistry::default())
         .manage(export::ExportState::default())
+        .manage(metrics::MemoryTracker::default())
         .register_uri_scheme_protocol("librecut", |ctx, request| {
             media::handle_protocol(ctx.app_handle(), &request)
         })
@@ -33,6 +36,14 @@ pub fn run() {
             project::save_project,
             project::load_project,
             project::has_nvenc,
+            library::save_project_document,
+            library::load_project_document,
+            library::load_project_cache,
+            library::list_project_states,
+            library::delete_project_state,
+            library::clear_project_states,
+            library::write_diagnostics_report,
+            metrics::runtime_memory,
             models::offline_model_status,
             models::ensure_models_dir,
         ])

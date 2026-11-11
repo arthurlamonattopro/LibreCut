@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Home } from "../features/home/Home";
 import { Editor } from "../features/editor/Editor";
 import { ToastViewport, toast } from "../components/Toast";
-import { persistProject } from "../stores/projects";
+import { persistProject } from "../lib/projectStore";
 import { useEditor } from "../stores/editor";
 import { hydrateProject, rebuildProxies } from "../lib/hydrate";
 import type { Project } from "../lib/types";
@@ -28,9 +28,9 @@ export default function App() {
     }
   };
 
-  const goHome = () => {
+  const goHome = async () => {
     const project = useEditor.getState().project;
-    if (project) persistProject(project);
+    if (project) await persistProject(project);
     useEditor.getState().closeProject();
     setView("home");
     setHomeKey((value) => value + 1);

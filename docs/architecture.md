@@ -74,7 +74,10 @@ Hugging Face repositories.
 
 Media elements are not displayed directly. The preview:
 
-1. Creates a hidden `<video>`/`<audio>`/`Image` per clip (`syncPool`).
+1. Creates a hidden `<video>`/`<audio>`/`Image` per clip, but only for the
+   clips around the playhead (`syncPool`). A long timeline holds thousands of
+   clips, and decoding all of them at once would dominate memory and keep
+   every decoder busy.
 2. Routes non-image elements through `AudioContext`:
    `source → low shelf → mid peak → high shelf → stereo panner → compressor → gain`.
    Per-clip volume, track volume, ducking, track mute, and fades are applied on
@@ -85,6 +88,10 @@ Media elements are not displayed directly. The preview:
    - sets gains
    - composites the active video/image layers and text onto a 2D canvas
 4. Applies `contain`/`cover` fitting and clip opacity in canvas space.
+
+The clips that are on screen are found through a per-track index
+(`src/lib/timelineIndex.ts`) built once per project. A binary search over the
+sorted clips replaces the scan over every clip that each frame used to do.
 
 Preview resolution is capped at 1920 px on the long edge. Proxies keep decoding
 cheap for 4K sources and codecs WebView2 struggles with.
@@ -130,15 +137,22 @@ the UI. Cancel sets an atomic flag, kills the child, and deletes the partial fil
 
 Two layers:
 
-1. **Autosave:** JSON in WebView local storage, debounced 700 ms in the editor
-   and flushed on back/close. Index at `librecut:projects:v1`, one key per
-   project.
+1. **Autosave:** the editable document is written to the app data folder by
+   the Rust backend, asynchronously, so a save never blocks the renderer. Each
+   project lives in its own folder with `project.json` for the document and
+   `cache.json` for the regenerable media caches (poster frames and waveform
+   peaks). Writes are atomic: the new content lands in a temp file, the
+   previous copy is kept as `.bak`, and the temp file is renamed into place.
+   A corrupted document falls back to the `.bak` copy when it is read.
+   Poster frames and waveforms are written only when they change, so an edit
+   re-serializes the clips rather than the whole media cache.
 2. **Portable file:** `Save copy` writes a versioned `.librecut` JSON through
    Rust (`save_project`). The write is atomic: backup existing file to
    `.librecut.bak`, write `.librecut.tmp`, then rename over the target.
 
 `load_project` validates JSON before returning it; the renderer checks
-`schemaVersion` and structure.
+`schemaVersion` and structure. Projects saved by an earlier build are migrated
+into the file-backed library the first time the project library is opened.
 
 ## State and history
 

@@ -24,7 +24,7 @@ import {
   pickExportPath,
   revealFile,
 } from "../../lib/media";
-import { formatClock, formatDuration, projectDuration } from "../../lib/time";
+import { cachedProjectDuration, formatClock, formatDuration } from "../../lib/time";
 import { projectDuckingSegments } from "../../lib/audio";
 import type {
   ExportClipRequest,
@@ -246,7 +246,7 @@ function buildRequest(
     width,
     height,
     fps: project.fps,
-    duration: projectDuration(project.tracks, 0),
+    duration: cachedProjectDuration(project.tracks, 0),
     clips,
     texts,
     effects,
@@ -309,7 +309,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
   if (!project) return null;
 
   const clipCount = project.tracks.reduce((sum, track) => sum + track.clips.length, 0);
-  const duration = projectDuration(project.tracks, 0);
+  const duration = cachedProjectDuration(project.tracks, 0);
   const canExport = clipCount > 0 && !exporting && runtime?.ready !== false;
 
   const chooseOutput = async () => {

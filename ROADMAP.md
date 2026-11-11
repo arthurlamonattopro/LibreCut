@@ -120,8 +120,8 @@ based on preview feedback; this is a target, not a release-date commitment.
 
 - [ ] Performance hardening for long timelines and 4K sources
   - [x] Set representative project sizes and playback/export performance targets ([profile](docs/performance.md))
-  - [ ] Profile memory, decode, timeline interaction, and project-save behavior
-  - [ ] Avoid blocking the editor during imports, proxy work, and other long tasks
+  - [x] Profile memory, decode, timeline interaction, and project-save behavior ([diagnostics](docs/performance.md#profiling-procedure))
+  - [x] Avoid blocking the editor during imports, proxy work, and other long tasks
 - [ ] Accessibility and interaction quality
   - [ ] Audit keyboard navigation, focus order, labels, contrast, and screen-reader output
   - [ ] Make core import, timeline edit, inspector, and export flows usable without a mouse

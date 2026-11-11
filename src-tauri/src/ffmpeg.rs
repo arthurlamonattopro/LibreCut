@@ -104,6 +104,20 @@ pub fn command(program: &str) -> Command {
     cmd
 }
 
+/// The number of threads background media work may use.
+///
+/// Poster frames, waveforms and proxies run while the editor is in use. FFmpeg
+/// would otherwise claim every core and make the UI stutter, so background
+/// jobs keep a core free for the renderer.
+pub fn background_threads() -> usize {
+    let cores = std::thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(4);
+    // At least one thread, and never more than half of the machine, so a
+    // 4K proxy encode cannot starve the editor.
+    (cores / 2).clamp(1, 8)
+}
+
 async fn probe_tool(env_var: &str, stem: &str) -> ToolStatus {
     let (path, source) = resolve_tool(env_var, stem);
     let output = command(&path).arg("-version").output().await;

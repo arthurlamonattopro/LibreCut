@@ -1,7 +1,7 @@
 # Project format (`.librecut`)
 
 A LibreCut project is a UTF-8 JSON document. The current schema is version 1.
-The same structure is used for autosave in local storage and for portable
+The same structure is used for the autosaved project document and for portable
 `.librecut` files.
 
 ```jsonc
@@ -74,6 +74,29 @@ Notes:
 - `waveform` is interleaved min/max pairs, normalized to `[-1, 1]`.
 - `thumbnails` are base64 JPEG data URLs. Large projects may omit them; the UI
   falls back to a placeholder.
+
+## Autosaved documents
+
+The autosaved project in the app data folder uses the schema above, with one
+difference: the regenerable media caches are kept in a separate `cache.json`
+next to the document, keyed by asset id. The document therefore holds the
+clips and tracks, and `cache.json` holds the poster frames and waveforms.
+
+```jsonc
+// cache.json
+{
+  "assets": {
+    "<asset-id>": {
+      "thumbnails": ["data:image/jpeg;base64,..."],
+      "waveform": [-0.5, 0.5, ...]
+    }
+  }
+}
+```
+
+The split keeps an autosave proportional to the edit rather than to the media
+cache. Both files are written atomically, and a project document that cannot be
+read falls back to its `.bak` copy.
 
 ## Track
 

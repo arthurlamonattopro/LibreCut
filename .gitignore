@@ -19,6 +19,13 @@ src-tauri/legal/FFMPEG-BUILD-LICENSE.txt
 .env.*
 !.env.example
 
+# signing keys. The Tauri CLI writes these next to the project when it
+# generates an updater key, so they must never be committed.
+.tauri/
+**/.tauri/
+*.key
+*.key.pub
+
 # editor / OS
 .vscode/*
 !.vscode/extensions.json

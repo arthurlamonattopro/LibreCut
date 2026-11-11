@@ -82,12 +82,17 @@ export function mergeRegions(regions: TimeRegion[]): TimeRegion[] {
 export function duckKeyRegions(project: Project, target: Track): TimeRegion[] {
   const threshold = target.ducking?.threshold ?? DEFAULT_DUCKING.threshold;
   const regions: TimeRegion[] = [];
+  // Resolving each clip's asset with a scan would cost O(clips x assets) on a
+  // long timeline, so the audio-capable assets are collected once.
+  const audibleAssets = new Set(
+    project.assets.filter((asset) => asset.info.hasAudio).map((asset) => asset.id),
+  );
   for (const track of project.tracks) {
     if (track.id === target.id) continue;
     if (track.muted || track.hidden) continue;
     if (track.ducking?.enabled) continue;
     for (const clip of track.clips) {
-      if (!clipHasAudio(project, clip)) continue;
+      if (!clip.assetId || !audibleAssets.has(clip.assetId)) continue;
       if (gainToDb(clip.volume) < threshold) continue;
       regions.push({ start: clip.start, end: clip.start + clip.duration });
     }

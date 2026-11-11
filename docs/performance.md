@@ -20,29 +20,42 @@ machine and must be revisited when that machine changes.
 ## Profiling procedure
 
 1. Create the profile project from local media and save a clean baseline copy.
-2. In a development build, open DevTools Performance and Memory panels. Record
-   a 60-second idle trace, a 60-second playback trace, 20 timeline drags/seeks,
-   one autosave, and one export. Take heap snapshots before and after playback.
-3. Record app and FFmpeg process memory separately during proxy generation and
-   export. Include cold-cache and warm-cache runs for decode and seek.
-4. Repeat each action three times and report median and worst result. Keep the
-   project file and measurement notes with the machine/runtime details.
+2. Open the editor and press the **Performance** button in the top bar. The
+   panel shows live measurements and refreshes every two seconds.
+3. Record a 60-second idle trace, a 60-second playback trace, 20 timeline
+   drags/seeks, one autosave, and one export. Take heap snapshots before and
+   after playback.
+4. Press **Save profile** to write a JSON report into the app data folder.
+   Attach it to the notes so the numbers can be compared over time.
 
-Development builds log slow media probe, media analysis, aggregate import, and
-project-save timings with asset/clip counts and cache sizes. The browser's
-Long Tasks API reports main-thread tasks of at least 50 ms when the WebView
-supports it. Preview seek timing is also logged by the preview. These signals
-help locate stalls; memory, playback frame rate, timeline drag latency, and
-export throughput still need to be captured in the profiling procedure above.
+The panel reports the measurements the targets above are written against:
 
-## Current constraints to investigate
+| Measurement | What it covers |
+| --- | --- |
+| `timeline drag` | Time spent handling a pointer move during a clip drag |
+| `preview seek` | Time to position the media elements after a seek |
+| `project save` | Time to write the project to disk |
+| `memory.working-set` | Editor working set, with the JavaScript heap and the native process memory reported separately |
+| `memory.ffmpeg-working-set` | Working set of the FFmpeg children LibreCut spawned |
 
-- Project serialization and `localStorage.setItem` run synchronously during
-  autosave. Large projects can stall the editor; moving durable project storage
-  to an asynchronous store needs compatibility and crash-recovery design.
-- Import metadata, thumbnail, and waveform work runs through async native
-  commands with bounded concurrency. Proxy encoding runs in FFmpeg child
-  processes with a two-job queue. Verify responsiveness and memory under the
-  4K profile before raising those limits.
-- Timeline drag and preview decode are separate measurements. A responsive
-  proxy does not establish that a long timeline stays responsive.
+Long-task warnings, media probe timings, media analysis timings, and aggregate
+import timings are also logged to the developer console in development builds.
+
+## Where the time goes
+
+The editor keeps its per-frame and per-interaction work proportional to what
+is on screen rather than to the size of the project:
+
+- **Timeline.** Only the clips inside the visible scroll window are rendered.
+  Snap boundaries are sorted once per project and searched with a binary
+  search, so a drag does not rebuild a candidate list per pointer move.
+- **Preview.** Media elements are pooled for the clips around the playhead
+  rather than for every clip in the project. The active clips are found with a
+  binary search over a per-track index instead of scanning all clips per frame.
+- **Project storage.** The editable document is stored on disk and written
+  asynchronously. Poster frames and waveforms are regenerable caches and live
+  in a separate file, so an edit only re-serializes the clips that changed.
+- **Background media work.** Thumbnail, waveform, and proxy jobs run as
+  FFmpeg child processes with a bounded thread count, so they cannot starve
+  the editor of CPU while a 4K source is prepared.
+

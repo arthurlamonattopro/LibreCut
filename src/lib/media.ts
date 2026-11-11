@@ -7,8 +7,10 @@ import type {
   ExportResult,
   MediaInfo,
   MediaProgress,
+  MemorySnapshot,
   RegisteredMedia,
   RuntimeStatus,
+  StoredProjectSummary,
 } from "./types";
 
 export interface CaptionSegment { start: number; end: number; text: string }
@@ -97,6 +99,54 @@ export async function isExporting(): Promise<boolean> {
 
 export async function getRuntimeStatus(): Promise<RuntimeStatus> {
   return invoke<RuntimeStatus>("runtime_status");
+}
+
+/**
+ * Reads the working set of the editor and of the FFmpeg children it spawned.
+ * The two are reported separately because the editor budget in
+ * `docs/performance.md` excludes FFmpeg child processes.
+ */
+export async function getMemorySnapshot(): Promise<MemorySnapshot> {
+  return invoke<MemorySnapshot>("runtime_memory");
+}
+
+/** Stores the editable part of a project in the on-disk library. */
+export async function saveProjectDocument(
+  id: string,
+  document: string,
+  cache?: string,
+): Promise<StoredProjectSummary> {
+  return invoke<StoredProjectSummary>("save_project_document", { id, document, cache });
+}
+
+/** Reads a stored project document, or null when it is missing. */
+export async function loadProjectDocument(id: string): Promise<string | null> {
+  return invoke<string | null>("load_project_document", { id });
+}
+
+/** Reads the regenerable media caches of a stored project. */
+export async function loadProjectCache(id: string): Promise<string | null> {
+  return invoke<string | null>("load_project_cache", { id });
+}
+
+/** Lists the projects held in the on-disk library. */
+export async function listProjectStates(): Promise<StoredProjectSummary[]> {
+  return invoke<StoredProjectSummary[]>("list_project_states");
+}
+
+/** Removes a project from the on-disk library. */
+export async function deleteProjectState(id: string): Promise<void> {
+  return invoke("delete_project_state", { id });
+}
+
+/** Removes every project from the on-disk library. */
+export async function clearProjectStates(): Promise<void> {
+  return invoke("clear_project_states");
+}
+
+/** Writes a profiling report into the app data folder and returns its path. */
+export async function writeDiagnosticsReport(name: string, contents: string): Promise<string> {
+  return invoke<string>("write_diagnostics_report", { name, contents });
 }
 
 export async function revealFile(path: string): Promise<void> {

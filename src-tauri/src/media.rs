@@ -312,6 +312,9 @@ pub async fn generate_thumbnails(app: AppHandle, path: String) -> Result<Vec<Str
     let pattern = dir.join("thumb_%03d.jpg");
     let mut command = ffmpeg::command(&ffmpeg::ffmpeg_bin());
     command.args(["-v", "error", "-y", "-i"]).arg(&source);
+    // Thumbnail generation runs while the editor is in use, so it is limited
+    // to a share of the CPU.
+    command.args(["-threads", &ffmpeg::background_threads().to_string()]);
     if info.is_image {
         command.args(["-frames:v", "1", "-vf", "scale=180:-2"]);
     } else {
@@ -364,6 +367,7 @@ pub async fn generate_waveform(path: String, buckets: Option<u32>) -> Result<Vec
         .args([
             "-vn", "-ac", "1", "-ar", "8000", "-t", "1800", "-f", "f32le", "pipe:1",
         ])
+        .args(["-threads", &ffmpeg::background_threads().to_string()])
         .output()
         .await
         .map_err(|e| format!("Could not run ffmpeg: {e}"))?;
@@ -463,6 +467,10 @@ pub async fn create_proxy(
                 "pipe:1",
                 "-nostats",
             ])
+            // A proxy encode runs in the background, so it only claims part
+            // of the CPU. The editor stays responsive while a 4K source is
+            // being prepared.
+            .args(["-threads", &ffmpeg::background_threads().to_string()])
             .arg(&target)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
