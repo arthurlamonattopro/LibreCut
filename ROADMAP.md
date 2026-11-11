@@ -56,7 +56,10 @@ What landed in v0.2:
 - Stereo panning, a per-clip compressor, track volume, and volume automation
   with timeline curves round out the audio work.
 
-## v0.3 — effects and ecosystem
+## v0.3 — effects and ecosystem (implemented)
+
+The v0.3 scope below is delivered. Cross-platform packages still need hands-on
+verification before macOS and Linux can be called supported release targets.
 
 - [x] Color adjustments and a searchable effect preset browser
 - [x] JSON effect-pack plugins
@@ -79,19 +82,75 @@ What landed in v0.2:
   - [x] Check for updates and present release notes before installation
   - [x] Download, verify, and install updates with recovery from interrupted updates
   - [x] Document update channels and how to disable update checks
-- [ ] macOS and Linux builds
+- [x] macOS and Linux builds
   - [x] Set up macOS and Linux build and packaging workflows (Intel macOS DMG; Ubuntu 22.04 x64 DEB/AppImage)
   - [x] Implement platform-specific media, filesystem, and installer integration (native Tauri dialogs/protocols and case-aware media path matching)
   - [x] Package FFmpeg and required runtime dependencies for each platform (static FFmpeg/ffprobe sidecars)
-  - [ ] Verify install, launch, project editing, and export on supported systems
 
-## v1.0 — release quality
+## v0.4 — media and rendering workflow (implemented)
 
-- Performance hardening for long timelines and 4K sources
-- Accessibility audit and keyboard-complete workflows
-- Signed installers and reproducible builds
-- Localization framework for the editor UI (AI language options are available today)
-- Documentation, tutorials, and a community preset pack
+Focus: reduce friction between a finished edit and a dependable deliverable.
+
+- [x] Make export settings easier to understand and repeat
+  - [x] Save named export presets for resolution, frame rate, quality, and encoder
+  - [x] Show estimated output size and explain hardware-encoder availability
+  - [x] Preserve export progress and a useful failure summary after cancellation or error
+- [x] Strengthen preview and render consistency
+  - [x] Track effect, transition, and keyframe usage and surface known preview/render differences
+  - [x] Add a render diagnostics view for unsupported or approximated features
+  - [x] Improve proxy status, retry, and cleanup controls
+- [x] Expand practical media handling
+  - [x] Add subtitle import and export workflows with editable timeline cues
+  - [x] Flag likely variable-frame-rate sources and explain mixed-rate export normalization
+  - [x] Add clearer warnings for unsupported formats and corrupted media
+- [x] Improve long-session resilience
+  - [x] Add development timing diagnostics for slow import, seek, and save paths and bound import work
+  - [x] Bound undo history and background work for large media libraries
+  - [x] Recover interrupted proxy generation and keep incomplete exports away from the destination file
+
+Output-size estimates are approximate, and variable-frame-rate detection is based on
+the frame-rate values reported by FFprobe. Per-feature preview/render differences
+can still vary by source codec, browser, and FFmpeg build.
+
+## v1.0 — dependable release
+
+The v1.0 goal is a reliable editor for common creator workflows, with clear
+platform support and no loss of the local-first promise. Scope will be narrowed
+based on preview feedback; this is a target, not a release-date commitment.
+
+- [ ] Performance hardening for long timelines and 4K sources
+  - [ ] Set representative project sizes and playback/export performance targets
+  - [ ] Profile memory, decode, timeline interaction, and project-save behavior
+  - [ ] Avoid blocking the editor during imports, proxy work, and other long tasks
+- [ ] Accessibility and interaction quality
+  - [ ] Audit keyboard navigation, focus order, labels, contrast, and screen-reader output
+  - [ ] Make core import, timeline edit, inspector, and export flows usable without a mouse
+  - [ ] Add accessible names and announcements for progress, errors, and dialogs
+- [ ] Signed installers and reproducible release builds
+  - [ ] Sign and notarize macOS builds and verify Gatekeeper behavior
+  - [ ] Define supported Linux package environments and validate clean installs
+  - [ ] Document release inputs, dependency versions, checksums, and artifact provenance
+  - [ ] Keep update signing keys and release credentials out of the repository
+- [ ] Localization framework for the editor UI
+  - [ ] Extract interface strings and support locale-aware dates, numbers, and shortcuts
+  - [ ] Ship reviewed translations for English, Spanish, Portuguese, and French
+  - [ ] Keep AI language availability distinct from interface translation coverage
+- [ ] Documentation and community ecosystem
+  - [ ] Publish beginner tutorials for import, editing, audio, titles, and export
+  - [ ] Document supported formats, platform requirements, known limitations, and recovery
+  - [ ] Curate and review a community preset pack with clear licensing
+- [ ] Release readiness
+  - [ ] Define supported operating systems and minimum hardware/runtime requirements
+  - [ ] Complete regression checks for project compatibility, editing, and export
+  - [ ] Publish release notes, upgrade guidance, privacy information, and support channels
+
+## Release principles
+
+- Keep projects and media local by default; network features remain optional and explicit.
+- Preserve existing `.librecut` projects when the format evolves, with documented migrations.
+- Prefer clear failure messages and recoverable work over silent data loss.
+- Treat platform support as verified only after install, launch, editing, save/load, and export have been exercised on that platform.
+- Revisit priorities with user feedback; later milestones may change before implementation.
 
 ## Explicit non-goals
 

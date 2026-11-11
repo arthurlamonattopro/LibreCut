@@ -1,6 +1,8 @@
 # LibreCut — Project Resume / Summary
 
-LibreCut is a free, open-source, **local-first video editor for Windows**, built with **Tauri 2 + React 19/TypeScript + Rust + FFmpeg**. No account, no watermark, no telemetry; all processing happens on the local machine.
+LibreCut is a free, open-source, **local-first video editor** built with **Tauri 2 + React 19/TypeScript + Rust + FFmpeg**. Windows is the primary development platform; macOS and Linux packaging workflows are implemented, with hands-on verification still open. No account, no watermark, no telemetry; core editing and rendering happen locally. Optional cloud AI uses endpoints and API keys supplied by the user.
+
+The current project milestone is the **v0.3 development preview**. It includes the v0.2 timeline and audio work plus v0.3 effects, LUTs, templates, plugins, opt-in updates, and cross-platform packaging workflows. See [ROADMAP.md](ROADMAP.md) for the detailed feature and platform status.
 
 ## What was built
 
@@ -22,6 +24,7 @@ LibreCut is a free, open-source, **local-first video editor for Windows**, built
 - `src/features/editor/MediaPanel.tsx` — import, media/text/audio tabs, asset cards
 - `src/features/editor/Inspector.tsx` — clip timing, transform, opacity, volume, typography
 - `src/features/editor/ExportDialog.tsx` — size presets, encoder choice, progress/cancel
+- Effects, LUTs, templates, plugins, AI tools, and update controls are implemented across the editor and home/settings features.
 - `src/components/Modal.tsx`, `Toast.tsx`, `Slider.tsx`, `Waveform.tsx`, `Logo.tsx`, `TopBar.tsx`
 - `src/lib/hydrate.ts` — re-registers media paths on project open, rebuilds proxies
 
@@ -61,6 +64,8 @@ LibreCut is a free, open-source, **local-first video editor for Windows**, built
 | `pnpm tauri build` | ✅ NSIS 59.1 MiB and MSI 79.4 MiB with FFmpeg 9.0.2 sidecars |
 | `scripts/verify-installer.ps1 -InstallTest` | ✅ silent NSIS install and MSI administrative install contain the app, sidecars, and legal files |
 
+These results record the verified development run. The Windows installer checks do not verify macOS or Linux packages; installing, launching, editing, and exporting on supported systems remains open in the roadmap.
+
 ## How to run
 
 ```powershell
@@ -74,9 +79,12 @@ Useful commands:
 - `pnpm build` — production frontend build
 - `cd src-tauri; cargo check` — Rust
 
-## What's deferred (post-v0.1)
+## Current open work
 
-Transitions, keyframes, speed ramps, LUTs/filters, chroma key, auto-captions (Whisper), audio ducking, templates, plugins, cloud sync, mobile, macOS/Linux builds, signed installers.
+- Verify macOS Intel DMG and Ubuntu 22.04 x64 DEB/AppImage installation, launch, project editing, and export on supported systems.
+- v1.0 release quality: long-timeline and 4K performance, accessibility, signed installers, reproducible builds, UI localization, and documentation/tutorials.
+
+Deferred or explicitly out of scope include motion tracking, nested sequences, multi-cam editing, cloud sync, and mobile builds; see [ROADMAP.md](ROADMAP.md) for the current roadmap and non-goals.
 
 ## License
 

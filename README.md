@@ -1,14 +1,14 @@
 # LibreCut
 
-**A free, open-source, local-first video editor for Windows.** No account. No watermark. No telemetry.
+**A free, open-source, local-first video editor.** No account. No watermark. No telemetry.
 
-LibreCut is an early-stage desktop editor built for fast, everyday cuts: import media, trim and split on a multi-track timeline, add text and music, then export a clean MP4 rendered locally with FFmpeg.
+LibreCut is an early-stage desktop editor built for fast, everyday cuts: import media, edit a multi-track timeline, add effects, titles, and music, then export an MP4 locally with FFmpeg. Windows is the primary development platform; macOS and Linux packaging workflows are also available, with hands-on verification still in progress.
 
 > LibreCut is not affiliated with CapCut or ByteDance. It is an independent open-source project inspired by the simplicity of modern creator tools.
 
 ## Status
 
-This repository contains the **v0.1 development preview** with the **v0.2 timeline-depth** work merged in. The core editing loop is implemented and the Tauri window launches successfully on Windows; expect rough edges and missing advanced features.
+This repository contains the **v0.3 development preview**. The core editing loop and the v0.2 timeline-depth and v0.3 effects/ecosystem work are implemented. Expect rough edges; macOS and Linux packages still need verification on supported systems.
 
 Verified today:
 
@@ -30,23 +30,27 @@ Working today:
 - Clip move, trim, split, duplicate, delete, snapping, zoom, and undo/redo
 - Speed ramps with editable speed points, in the preview and the export
 - Live canvas preview with compositing, transforms, opacity, transitions, keyframes, text, and audio effects
-- Inspector for clip transitions, animation presets, keyframes, color filters with masks, three-band EQ, panning, compression, ducking, and typography
-- Audio ducking, track volume, volume automation curves, and per-clip fades
-- Text clips with font family, italics, line height, shadow colour, background box, and safe-area guides
-- Local AI captions and speech generation with first-use model downloads, optional offline model bundles, and a strict offline mode
+- Searchable effect presets, color adjustments, masks, blur, vignette, fades, motion blur, and imported `.cube` LUTs
+- Text styling, animation presets, safe-area guides, and customizable transitions and keyframes
+- Audio ducking, expanded EQ, stereo panning, compression, track volume, automation curves, and per-clip fades
+- Local AI captions, speech generation, and image background removal; models can download on first use or be installed as offline bundles
+- Optional cloud AI through user-provided endpoints and API keys
+- Effect-pack plugins and broader editor plugins, with permissions and lifecycle controls
+- Built-in and custom project templates
 - H.264/AAC export with size presets, NVENC or CPU encoding, progress, and cancellation
-- English UI, keyboard shortcuts, and a local-only privacy model
+- Opt-in update checks and updates, with release notes
+- English UI, keyboard shortcuts, and a local-first privacy model
 
-Not in v0.1:
+Platform status:
 
-- LUT import, motion tracking, and nested sequences
-- Multi-cam editing, templates, an effects store, and cloud sync
-- Mobile builds
-- macOS/Linux release builds (the architecture is cross-platform, Windows is the focus)
+- Windows: development and installer workflows are implemented.
+- macOS: Intel DMG build workflow is implemented.
+- Linux: Ubuntu 22.04 x64 DEB and AppImage build workflows are implemented.
+- macOS/Linux install, launch, editing, and export verification remains open. See [ROADMAP.md](ROADMAP.md).
 
 ## Requirements
 
-- Windows 10/11 (WebView2 Evergreen)
+- Windows 10/11 (WebView2 Evergreen); macOS and Linux build workflows are available
 - Node.js 22+ and pnpm 10+
 - Rust 1.77+ with the MSVC toolchain and Windows SDK
 - FFmpeg 9.x with `ffprobe` for development
@@ -148,7 +152,7 @@ If you find a bug, include:
 ## Roadmap
 
 - **v0.2:** magnetic main track, ripple edits, speed ramps, offline model bundles, audio ducking and expanded EQ — landed
-- **v0.3:** LUT import, templates, broader plugin API, opt-in auto-update, macOS/Linux builds
-- **v1.0:** stability and performance hardening, accessibility audit, packaging and signing, community presets
+- **v0.3:** effects, LUTs, templates, broader plugin API, opt-in auto-update, and macOS/Linux packaging workflows — implemented; platform verification remains
+- **v1.0:** performance hardening, accessibility, signed and reproducible builds, UI localization, and community presets
 
-The current preview already includes transitions, keyframes, a searchable effect library, effect-pack plugins, and local AI tools with first-use model downloads. See [ROADMAP.md](ROADMAP.md) for details.
+See [ROADMAP.md](ROADMAP.md) for details and current open work.
