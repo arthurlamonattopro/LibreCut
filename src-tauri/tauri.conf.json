@@ -72,7 +72,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU1NkVENzUxNjg3RkExQ0UKUldUT29YOW9VZGR1NVhKV2hWQjZRZU9sS1llUEtBdDBUNFdWQkRlWTFnSDU5Z00vdkN6Y2FCUXoK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZGNTcyRjRGMEM1QTg4NTYKUldSV2lGb01UeTlYYjA3ZkxoOUJHcHBlTlcreURBM0E0VTVJOHh0elgxTXF0ME9FZnU0YStiWmUK",
       "endpoints": ["https://github.com/arthurlamonattopro/LibreCut/releases/latest/download/latest.json"],
       "windows": { "installMode": "passive" }
     }
