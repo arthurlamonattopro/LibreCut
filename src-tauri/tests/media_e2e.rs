@@ -124,6 +124,7 @@ async fn make_image(dir: &Path) -> PathBuf {
 fn video_clip(path: &Path) -> ExportClip {
     ExportClip {
         path: path.to_string_lossy().to_string(),
+        track_id: Some("video-1".to_string()),
         start: 0.0,
         duration: 2.0,
         trim_in: 0.0,

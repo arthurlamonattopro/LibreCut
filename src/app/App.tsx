@@ -2,7 +2,9 @@ import { useState } from "react";
 import { Home } from "../features/home/Home";
 import { Editor } from "../features/editor/Editor";
 import { ToastViewport, toast } from "../components/Toast";
+import { LiveRegion } from "../components/LiveRegion";
 import { persistProject } from "../lib/projectStore";
+import { t } from "../lib/i18n";
 import { useEditor } from "../stores/editor";
 import { hydrateProject, rebuildProxies } from "../lib/hydrate";
 import type { Project } from "../lib/types";
@@ -18,13 +20,13 @@ export default function App() {
       setView("editor");
       if (hydrated.missing.length > 0) {
         toast(
-          `${hydrated.missing.length} media file${hydrated.missing.length === 1 ? "" : "s"} could not be found.`,
+          t(hydrated.missing.length === 1 ? "{count} media file could not be found." : "{count} media files could not be found.", { count: hydrated.missing.length }),
           "error",
         );
       }
       void rebuildProxies(hydrated.project, useEditor.getState().replaceAsset);
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not load the project.", "error");
+      toast(error instanceof Error ? error.message : t("Could not load the project."), "error");
     }
   };
 
@@ -44,6 +46,7 @@ export default function App() {
         <Editor onBack={goHome} />
       )}
       <ToastViewport />
+      <LiveRegion />
     </>
   );
 }

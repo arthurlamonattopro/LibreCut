@@ -128,6 +128,37 @@ Because FFmpeg 9 removed `-filter_complex_script`, the graph is passed with
 `-/filter_complex <file>`. Writing it to a file avoids Windows command-line
 length limits.
 
+### Transitions
+
+A transition belongs to the **cut** between two neighbouring clips, not to a
+single clip. Either edge can describe it — the clip that hands over
+(`transitionOut`) or the clip that takes over (`transitionIn`) — and the
+incoming edge wins when both do. `src/lib/transitions.ts` holds the
+catalogue: every transition FFmpeg's `xfade` filter supports, with the label
+the inspector shows, the group it is listed under, and the preview pattern.
+
+The window sits at the start of the incoming clip. The clip that goes away is
+held on its last frame while the new one moves in, so the cut keeps the
+timeline length it had:
+
+```
+[vA]tpad=stop_mode=clone:stop_duration=D,trim=start=END_A:duration=D,setpts=PTS-STARTPTS[hold];
+[vB]trim=start=START_B:duration=D,setpts=PTS-STARTPTS[head];
+[hold][head]xfade=transition=NAME:duration=D:offset=0[xf];
+[xf]setpts=PTS+START_B/TB[xfp];
+[base][xfp]overlay=...:enable='between(t,START_B,START_B+D)'[bgx];
+```
+
+The incoming clip's own overlay starts after the window, because the
+transition stream takes its place. The audio follows the same cut: the
+outgoing clip is padded for the length of the transition and faded out while
+the incoming clip fades in, which crossfades the two in the mix.
+
+An edge without a neighbour (the last clip on a track, or a clip with a gap
+in front of it) has nothing to crossfade with, so it fades against the
+background instead. The preview does the same, which keeps the two renderers
+in step.
+
 Encoders: `libx264` (default), `h264_nvenc`, `h264_qsv`, `h264_amf`. NVENC is
 detected by inspecting `ffmpeg -encoders`. Export runs as a child process with
 `-progress pipe:1`; output is parsed into percent/time/fps/speed and emitted to
@@ -161,6 +192,18 @@ zoom, snap, dirty flag, and undo/redo stacks. Mutations go through `mutate`,
 which snapshots the previous project for undo unless `record` is false. Continuous
 gestures (drag, slider) record once on gesture start to keep history readable.
 
+## Interface localization
+
+`src/lib/i18n.ts` owns the interface locales (`en`, `es`, `pt-BR`). English
+source copy is the message key, so a missing translation falls back to readable
+English rather than an identifier. Components re-render on language changes
+through `useT()`; non-React code (toasts, error handlers, announcements) calls
+`t()`. Named placeholders such as `{name}` are interpolated by both. The chosen
+locale persists in local storage, is detected from the OS on first run, and is
+applied to `<html lang>`. Dates and numbers go through the `Intl` helpers in the
+same module. AI caption and speech languages are a separate list and are not
+affected by the interface locale.
+
 ## Failure modes
 
 - Missing source file → protocol returns 404; asset shows a broken thumbnail.
@@ -177,3 +220,12 @@ but each feature is still described twice: once for the canvas/Web Audio preview
 and once for the FFmpeg graph. The intended direction is a compositor
 abstraction that can drive both from one description, instead of maintaining two
 independent renderers.
+
+Transitions are halfway there: the catalogue of transitions and the rule that
+decides which transition plays on a cut live in one place
+(`src/lib/transitions.ts`), and both renderers read them. What is still
+described twice is the look of a transition: the preview paints the geometry
+with canvas operations, while the export hands the name to FFmpeg's `xfade`.
+The preview therefore approximates the exotic transitions, while the export
+renders the real thing. A test in `src-tauri/tests/transitions.rs` keeps the
+two lists of transition names in step.

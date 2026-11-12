@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Modal } from "../../components/Modal";
 import { toast } from "../../components/Toast";
+import { announce } from "../../lib/announce";
 import { useEditor } from "../../stores/editor";
 import {
   cancelExport,
@@ -25,6 +26,7 @@ import {
   revealFile,
 } from "../../lib/media";
 import { cachedProjectDuration, formatClock, formatDuration } from "../../lib/time";
+import { useT } from "../../lib/i18n";
 import { projectDuckingSegments } from "../../lib/audio";
 import type {
   ExportClipRequest,
@@ -125,6 +127,7 @@ function buildRequest(
       if (track.kind === "video" && (asset.info.hasVideo || asset.info.isImage)) {
         clips.push({
           path: asset.path,
+          trackId: track.id,
           start: clip.start,
           duration: clip.duration,
           trimIn: clip.trimIn,
@@ -141,6 +144,12 @@ function buildRequest(
           scale: clip.scale,
           rotation: clip.rotation,
           mask: clip.mask,
+          maskX: clip.maskX ?? 0.5,
+          maskY: clip.maskY ?? 0.5,
+          maskWidth: clip.maskWidth ?? 0.6,
+          maskHeight: clip.maskHeight ?? 0.6,
+          maskRotation: clip.maskRotation ?? 0,
+          maskPoints: clip.maskPoints ?? [],
           chromaKey: clip.chromaKey,
           fadeIn: clip.fadeIn,
           fadeOut: clip.fadeOut,
@@ -162,6 +171,7 @@ function buildRequest(
       } else if (track.kind === "audio" && asset.info.hasAudio) {
         clips.push({
           path: asset.path,
+          trackId: track.id,
           start: clip.start,
           duration: clip.duration,
           trimIn: clip.trimIn,
@@ -178,6 +188,12 @@ function buildRequest(
           scale: 1,
           rotation: 0,
           mask: "none",
+          maskX: 0.5,
+          maskY: 0.5,
+          maskWidth: 0.6,
+          maskHeight: 0.6,
+          maskRotation: 0,
+          maskPoints: [],
           fadeIn: clip.fadeIn,
           fadeOut: clip.fadeOut,
           pitch: clip.pitch,
@@ -255,6 +271,7 @@ function buildRequest(
 }
 
 export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT();
   const project = useEditor((state) => state.project);
   const setPlaying = useEditor((state) => state.setPlaying);
   const [preset, setPreset] = useState<Preset>("source");
@@ -292,7 +309,17 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
   useEffect(() => {
     if (!exporting) return;
     let dispose: (() => void) | undefined;
-    void listen<ExportProgress>("export-progress", (event) => setProgress(event.payload))
+    // The render reports progress many times a second, so the screen reader
+    // is told about it in quarters rather than on every frame.
+    let announcedStep = -1;
+    void listen<ExportProgress>("export-progress", (event) => {
+      setProgress(event.payload);
+      const step = Math.floor(event.payload.percent / 25);
+      if (step > announcedStep) {
+        announcedStep = step;
+        announce(`Export ${Math.round(event.payload.percent)} percent.`);
+      }
+    })
       .then((unlisten) => {
         dispose = unlisten;
       })
@@ -330,6 +357,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
     setPlaying(false);
     setExporting(true);
     setCancelling(false);
+    announce(t("Export started."));
     try {
       const request = buildRequest(project, target, dimensions.width, dimensions.height, encoder);
       request.fps = fps;
@@ -337,14 +365,17 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
       const exported = await exportProject(request);
       setResult(exported);
       setProgress((current) => ({ ...(current ?? { time: duration, speed: "", fps: 0 }), percent: 100, time: duration }));
-      toast("Export complete.", "success");
+      toast(t("Export complete."), "success");
+      announce(t("Export complete."), { assertive: true });
     } catch (exportError) {
       const message = exportError instanceof Error ? exportError.message : String(exportError);
       if (message.toLowerCase().includes("cancel")) {
-        setError("Export cancelled.");
+        setError(t("Export cancelled."));
+        announce(t("Export cancelled."));
       } else {
         setError(message);
-        toast("Export failed. Check the details in the export dialog.", "error");
+        toast(t("Export failed. Check the details in the export dialog."), "error");
+        announce(t("Export failed. {message}", { message }), { assertive: true });
       }
     } finally {
       setExporting(false);
@@ -376,24 +407,24 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   const footer = result ? (
     <>
-      <button className="btn btn-ghost" onClick={close}>Done</button>
+      <button className="btn btn-ghost" onClick={close}>{t("Done")}</button>
       <button className="btn btn-secondary" onClick={() => void revealFile(result.output)}>
-        <FolderOpen size={14} /> Show in folder
+        <FolderOpen size={14} /> {t("Show in folder")}
       </button>
     </>
   ) : exporting ? (
     <>
-      <span className="mr-auto text-[11px] text-dim">Rendering locally with FFmpeg</span>
+      <span className="mr-auto text-[11px] text-dim">{t("Rendering locally with FFmpeg")}</span>
       <button className="btn btn-secondary" onClick={() => void cancel()} disabled={cancelling}>
         {cancelling ? <Loader2 size={14} className="animate-spin" /> : null}
-        {cancelling ? "Cancelling…" : "Cancel export"}
+        {cancelling ? t("Cancelling…") : t("Cancel export")}
       </button>
     </>
   ) : (
     <>
-      <button className="btn btn-ghost" onClick={close}>Cancel</button>
+      <button className="btn btn-ghost" onClick={close}>{t("Cancel")}</button>
       <button className="btn btn-primary" onClick={() => void start()} disabled={!canExport}>
-        <Upload size={15} /> Export video
+        <Upload size={15} /> {t("Export video")}
       </button>
     </>
   );
@@ -402,11 +433,11 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
     <Modal
       open={open}
       onClose={close}
-      title={result ? "Export complete" : "Export video"}
+      title={result ? t("Export complete") : t("Export video")}
       description={
         result
-          ? "Your video was rendered on this PC. No upload, no watermark."
-          : "Choose a size and render a clean H.264 MP4. Audio is mixed to AAC."
+          ? t("Your video was rendered on this PC. No upload, no watermark.")
+          : t("Choose a size and render a clean H.264 MP4. Audio is mixed to AAC.")
       }
       width={610}
       footer={footer}
@@ -416,16 +447,16 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
           <div className="flex items-center gap-3 rounded-xl border border-mint/20 bg-mint/5 p-3.5">
             <CheckCircle2 size={20} className="text-mint" />
             <div className="min-w-0 flex-1">
-              <div className="text-[12.5px] font-medium">Video exported</div>
+              <div className="text-[12.5px] font-medium">{t("Video exported")}</div>
               <div className="mt-0.5 truncate font-mono text-[10.5px] text-dim" title={result.output}>{result.output}</div>
             </div>
             <span className="chip">{formatDuration(result.elapsedMs / 1000)}</span>
           </div>
           <div className="grid grid-cols-3 gap-2">
             {[
-              ["Canvas", `${dimensions.width}×${dimensions.height}`],
-              ["Duration", formatClock(duration, fps)],
-              ["Encoder", encoder === "nvenc" ? "NVENC" : "x264 CPU"],
+              [t("Canvas"), `${dimensions.width}×${dimensions.height}`],
+              [t("Duration"), formatClock(duration, fps)],
+              [t("Encoder"), encoder === "nvenc" ? "NVENC" : "x264 CPU"],
             ].map(([label, value]) => (
               <div key={label} className="rounded-lg border border-line-soft bg-surface-2/50 px-3 py-2.5">
                 <div className="text-[9.5px] uppercase tracking-wide text-dim">{label}</div>
@@ -436,12 +467,12 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
         </div>
       ) : (
         <div className="space-y-5">
-          {savedPresets.length ? <div className="flex flex-wrap items-center gap-1.5" aria-label="Saved export presets">
+          {savedPresets.length ? <div className="flex flex-wrap items-center gap-1.5" aria-label={t("Saved export presets")}>
             {savedPresets.map((saved) => <button key={saved.name} className="chip" onClick={() => loadPreset(saved)} disabled={exporting}>{saved.name}</button>)}
           </div> : null}
           <div>
-            <span className="label">Size</span>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <span className="label" id="export-size-label">{t("Size")}</span>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="group" aria-labelledby="export-size-label">
               {PRESETS.map((item) => {
                 const Icon = item.icon;
                 const active = preset === item.id;
@@ -450,6 +481,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
                 return (
                   <button
                     key={item.id}
+                    aria-pressed={active}
                     className={`flex items-center gap-2.5 rounded-xl border p-2.5 text-left transition ${
                       active
                         ? "border-accent/55 bg-accent-soft"
@@ -458,81 +490,82 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
                     onClick={() => setPreset(item.id)}
                     disabled={exporting}
                   >
-                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${active ? "bg-accent/15 text-accent" : "bg-white/5 text-dim"}`}>
+                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${active ? "bg-accent/15 text-accent" : "bg-white/5 text-dim"}`} aria-hidden="true">
                       <Icon size={14} />
                     </span>
                     <span className="min-w-0">
-                      <span className="block truncate text-[11px] font-medium">{item.title}</span>
+                      <span className="block truncate text-[11px] font-medium">{t(item.title)}</span>
                       <span className="block font-mono text-[9px] text-dim">{width}×{height}</span>
                     </span>
                   </button>
                 );
               })}
             </div>
-            <p className="mt-1.5 text-[10px] text-dim">Aspect ratio is applied by fitting your canvas into the chosen size.</p>
+            <p className="mt-1.5 text-[10px] text-dim">{t("Aspect ratio is applied by fitting your canvas into the chosen size.")}</p>
           </div>
 
           <div className="grid grid-cols-3 gap-3">
-            <div><span className="label">Frame rate</span><select className="field" value={fps} onChange={(event) => setFps(Number(event.target.value))} disabled={exporting}>
-              {[...new Set([project.fps, 24, 25, 30, 50, 60])].sort((a, b) => a - b).map((value) => <option key={value} value={value}>{value} fps{value === project.fps ? " · project" : ""}</option>)}
+            <div><label className="label" htmlFor="export-fps">{t("Frame rate")}</label><select id="export-fps" className="field" value={fps} onChange={(event) => setFps(Number(event.target.value))} disabled={exporting}>
+              {[...new Set([project.fps, 24, 25, 30, 50, 60])].sort((a, b) => a - b).map((value) => <option key={value} value={value}>{t("{value} fps", { value })}{value === project.fps ? ` · ${t("project")}` : ""}</option>)}
             </select></div>
-            <div><span className="label">Quality</span><select className="field" value={quality} onChange={(event) => setQuality(event.target.value as Quality)} disabled={exporting}>
-              <option value="draft">Draft · smaller</option><option value="balanced">Balanced</option><option value="high">High · larger</option>
+            <div><label className="label" htmlFor="export-quality">{t("Quality")}</label><select id="export-quality" className="field" value={quality} onChange={(event) => setQuality(event.target.value as Quality)} disabled={exporting}>
+              <option value="draft">{t("Draft · smaller")}</option><option value="balanced">{t("Balanced")}</option><option value="high">{t("High · larger")}</option>
             </select></div>
             <div className="rounded-lg border border-line-soft bg-surface-2/50 px-3 py-2">
-              <div className="text-[9.5px] uppercase tracking-wide text-dim">Estimated size</div>
-              <div className="mt-1 font-mono text-[11px]">~{estimateSizeMb(duration, dimensions.width, dimensions.height, quality).toFixed(0)} MB</div>
+              <div className="text-[9.5px] uppercase tracking-wide text-dim">{t("Estimated size")}</div>
+              <div className="mt-1 font-mono text-[11px]">{t("~{size} MB", { size: estimateSizeMb(duration, dimensions.width, dimensions.height, quality).toFixed(0) })}</div>
             </div>
           </div>
-          <p className="-mt-3 text-[9.5px] text-dim">Estimate uses frame size and quality. Motion, detail, and audio can change the final size.</p>
+          <p className="-mt-3 text-[9.5px] text-dim">{t("Estimate uses frame size and quality. Motion, detail, and audio can change the final size.")}</p>
 
           <div className="flex items-center gap-2">
-            <input className="field min-w-0 flex-1" value={presetName} onChange={(event) => setPresetName(event.target.value)} placeholder="Name these settings" disabled={exporting} aria-label="Export preset name" />
-            <button className="btn btn-secondary shrink-0" onClick={savePreset} disabled={!presetName.trim() || exporting}>Save preset</button>
-            {savedPresets.length ? <button className="btn btn-ghost shrink-0" onClick={() => setSavedPresets((items) => { const next = items.filter((item) => item.name !== presetName); localStorage.setItem(SAVED_PRESETS_KEY, JSON.stringify(next)); return next; })} disabled={exporting || !presetName.trim()}>Remove</button> : null}
+            <input className="field min-w-0 flex-1" value={presetName} onChange={(event) => setPresetName(event.target.value)} placeholder={t("Name these settings")} disabled={exporting} aria-label={t("Export preset name")} />
+            <button className="btn btn-secondary shrink-0" onClick={savePreset} disabled={!presetName.trim() || exporting}>{t("Save preset")}</button>
+            {savedPresets.length ? <button className="btn btn-ghost shrink-0" onClick={() => setSavedPresets((items) => { const next = items.filter((item) => item.name !== presetName); localStorage.setItem(SAVED_PRESETS_KEY, JSON.stringify(next)); return next; })} disabled={exporting || !presetName.trim()}>{t("Remove")}</button> : null}
           </div>
-          <p className="-mt-3 text-[9.5px] text-dim">Saved on this PC: resolution, frame rate, quality, and encoder.</p>
+          <p className="-mt-3 text-[9.5px] text-dim">{t("Saved on this PC: resolution, frame rate, quality, and encoder.")}</p>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <span className="label">Encoder</span>
+              <label className="label" htmlFor="export-encoder">{t("Encoder")}</label>
               <select
+                id="export-encoder"
                 className="field"
                 value={encoder}
                 onChange={(event) => setEncoder(event.target.value as "libx264" | "nvenc")}
                 disabled={exporting}
               >
-                {hasNvenc ? <option value="nvenc">NVENC · GPU (fast)</option> : null}
-                <option value="libx264">x264 · CPU (compatible)</option>
+                {hasNvenc ? <option value="nvenc">{t("NVENC · GPU (fast)")}</option> : null}
+                <option value="libx264">{t("x264 · CPU (compatible)")}</option>
               </select>
               <p className="mt-1 text-[9.5px] text-dim">
-                {hasNvenc ? "FFmpeg reports NVENC. It needs a compatible NVIDIA GPU and driver; x264 remains the fallback." : "NVENC was not reported by this FFmpeg build or PC. x264 uses the CPU and is the compatible fallback."}
+                {hasNvenc ? t("FFmpeg reports NVENC. It needs a compatible NVIDIA GPU and driver; x264 remains the fallback.") : t("NVENC was not reported by this FFmpeg build or PC. x264 uses the CPU and is the compatible fallback.")}
               </p>
             </div>
             <div className="rounded-xl border border-line-soft bg-surface-2/50 px-3 py-2">
-              <div className="text-[9.5px] uppercase tracking-wide text-dim">Summary</div>
+              <div className="text-[9.5px] uppercase tracking-wide text-dim">{t("Summary")}</div>
               <div className="mt-1.5 flex items-center justify-between text-[11px]">
-                <span className="text-muted">Clips</span>
+                <span className="text-muted">{t("Clips")}</span>
                 <span className="font-mono">{clipCount}</span>
               </div>
               <div className="mt-1 flex items-center justify-between text-[11px]">
-                <span className="text-muted">Duration</span>
+                <span className="text-muted">{t("Duration")}</span>
                 <span className="font-mono">{formatDuration(duration)}</span>
               </div>
             </div>
           </div>
 
           <div>
-            <span className="label">Output file</span>
+            <span className="label" id="export-output-label">{t("Output file")}</span>
             <div className="flex gap-2">
-              <div className="field flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-[11px] text-muted">
-                <HardDrive size={13} className="shrink-0 text-dim" />
+              <div className="field flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-[11px] text-muted" role="status" aria-labelledby="export-output-label">
+                <HardDrive size={13} className="shrink-0 text-dim" aria-hidden="true" />
                 <span className={`truncate ${outputPath ? "font-mono text-[10.5px]" : "text-dim"}`} title={outputPath}>
-                  {outputPath || "Choose a destination when you export"}
+                  {outputPath || t("Choose a destination when you export")}
                 </span>
               </div>
               <button className="btn btn-secondary shrink-0" onClick={() => void chooseOutput()} disabled={exporting}>
-                <FolderOpen size={14} /> Choose
+                <FolderOpen size={14} aria-hidden="true" /> {t("Choose")}
               </button>
             </div>
           </div>
@@ -541,12 +574,24 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
             <div className="rounded-xl border border-line bg-surface-2/60 p-3.5">
               <div className="mb-2 flex items-center justify-between text-[11px]">
                 <span className="flex items-center gap-1.5 text-muted">
-                  {exporting ? <Loader2 size={12} className="animate-spin text-accent" /> : <CheckCircle2 size={12} className={result ? "text-mint" : "text-dim"} />}
-                  {exporting ? "Rendering…" : result ? "Render finished" : error.toLowerCase().includes("cancel") ? "Render cancelled" : error ? "Render stopped" : "Last render progress"}
+                  {exporting ? <Loader2 size={12} className="animate-spin text-accent" aria-hidden="true" /> : <CheckCircle2 size={12} className={result ? "text-mint" : "text-dim"} aria-hidden="true" />}
+                  {exporting ? t("Rendering…") : result ? t("Render finished") : error.toLowerCase().includes("cancel") ? t("Render cancelled") : error ? t("Render stopped") : t("Last render progress")}
                 </span>
                 <span className="font-mono text-[10.5px] text-accent">{progress.percent.toFixed(1)}%</span>
               </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-white/8">
+              <div
+                role="progressbar"
+                aria-label={t("Export progress")}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Number(progress.percent.toFixed(1))}
+                aria-valuetext={t("{percent} percent, {time} of {duration}", {
+                  percent: progress.percent.toFixed(0),
+                  time: formatClock(progress.time, project.fps),
+                  duration: formatClock(duration, project.fps),
+                })}
+                className="h-1.5 overflow-hidden rounded-full bg-white/8"
+              >
                 <div className="h-full rounded-full bg-accent transition-[width] duration-200" style={{ width: `${progress.percent}%` }} />
               </div>
               <div className="mt-2 flex items-center justify-between font-mono text-[9.5px] text-dim">
@@ -557,37 +602,44 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
           ) : null}
 
           {runtime && !runtime.ready ? (
-            <div className="flex items-start gap-2 rounded-xl border border-accent/25 bg-accent-soft/40 p-3 text-[11px] leading-relaxed text-accent">
-              <CircleAlert size={14} className="mt-0.5 shrink-0" />
+            <div role="alert" className="flex items-start gap-2 rounded-xl border border-accent/25 bg-accent-soft/40 p-3 text-[11px] leading-relaxed text-accent">
+              <CircleAlert size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
               <span>
-                FFmpeg was not found, so export is unavailable. Reinstall LibreCut or set
-                LIBRECUT_FFMPEG and LIBRECUT_FFPROBE, then reopen this dialog.
+                {t("FFmpeg was not found, so export is unavailable. Reinstall LibreCut or set LIBRECUT_FFMPEG and LIBRECUT_FFPROBE, then reopen this dialog.")}
               </span>
             </div>
           ) : null}
 
           {error ? (
-            <div className="flex items-start gap-2 rounded-xl border border-accent/25 bg-accent-soft/40 p-3 text-[11px] leading-relaxed text-accent">
-              <CircleAlert size={14} className="mt-0.5 shrink-0" />
+            <div role="alert" className="flex items-start gap-2 rounded-xl border border-accent/25 bg-accent-soft/40 p-3 text-[11px] leading-relaxed text-accent">
+              <CircleAlert size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
               <span className="whitespace-pre-wrap break-words">{error}</span>
             </div>
           ) : null}
 
           <div className="rounded-lg border border-line-soft bg-surface-2/40 p-3">
-            <button className="flex w-full items-center justify-between text-left text-[11px] font-medium" onClick={() => setDiagnosticsOpen((value) => !value)} aria-expanded={diagnosticsOpen}>
-              <span>Render diagnostics</span><span className="text-dim">{diagnosticsOpen ? "Hide" : "View"}</span>
+            <button className="flex w-full items-center justify-between text-left text-[11px] font-medium" onClick={() => setDiagnosticsOpen((value) => !value)} aria-expanded={diagnosticsOpen} aria-controls="export-diagnostics">
+              <span>{t("Render diagnostics")}</span><span className="text-dim">{diagnosticsOpen ? t("Hide") : t("View")}</span>
             </button>
-            {diagnosticsOpen ? <div className="mt-2 space-y-1.5 text-[10px] leading-relaxed text-dim">
-              <p>{project.assets.filter((asset) => asset.info.fps > 0 && Math.abs(asset.info.fps - project.fps) > 0.05).length} sources report a frame rate different from the project; {project.assets.filter((asset) => asset.info.isVfr).length} are flagged as possibly variable frame rate. Export resamples them to {fps} fps; small seek or sync differences may remain.</p>
-              <p>Project features queued for this render: {project.tracks.reduce((sum, track) => sum + track.clips.filter((clip) => clip.keyframes.length > 0).length, 0)} clips with keyframes, {project.tracks.reduce((sum, track) => sum + track.clips.filter((clip) => clip.transitionIn.type !== "none" || clip.transitionOut.type !== "none").length, 0)} clips with transitions, and {project.tracks.reduce((sum, track) => sum + track.clips.filter((clip) => clip.effect).length, 0)} color-effect clips.</p>
-              <p>Preview uses browser video decoding while export uses FFmpeg, so scaling, color processing, and font rasterization may differ slightly.</p>
-              {project.assets.filter((asset) => asset.info.videoCodec && !["h264", "vp8", "vp9", "av1", "hevc", "mpeg4"].includes(asset.info.videoCodec.toLowerCase())).map((asset) => <p key={asset.id}>{asset.name}: {asset.info.videoCodec} may depend on the installed FFmpeg build.</p>)}
+            {diagnosticsOpen ? <div id="export-diagnostics" className="mt-2 space-y-1.5 text-[10px] leading-relaxed text-dim">
+              <p>{t("{sources} sources report a frame rate different from the project; {vfr} are flagged as possibly variable frame rate. Export resamples them to {fps} fps; small seek or sync differences may remain.", {
+                sources: project.assets.filter((asset) => asset.info.fps > 0 && Math.abs(asset.info.fps - project.fps) > 0.05).length,
+                vfr: project.assets.filter((asset) => asset.info.isVfr).length,
+                fps,
+              })}</p>
+              <p>{t("Project features queued for this render: {keyframes} clips with keyframes, {transitions} clips with transitions, and {effects} color-effect clips.", {
+                keyframes: project.tracks.reduce((sum, track) => sum + track.clips.filter((clip) => clip.keyframes.length > 0).length, 0),
+                transitions: project.tracks.reduce((sum, track) => sum + track.clips.filter((clip) => clip.transitionIn.type !== "none" || clip.transitionOut.type !== "none").length, 0),
+                effects: project.tracks.reduce((sum, track) => sum + track.clips.filter((clip) => clip.effect).length, 0),
+              })}</p>
+              <p>{t("Preview uses browser video decoding while export uses FFmpeg, so scaling, color processing, and font rasterization may differ slightly.")}</p>
+              {project.assets.filter((asset) => asset.info.videoCodec && !["h264", "vp8", "vp9", "av1", "hevc", "mpeg4"].includes(asset.info.videoCodec.toLowerCase())).map((asset) => <p key={asset.id}>{t("{name}: {codec} may depend on the installed FFmpeg build.", { name: asset.name, codec: asset.info.videoCodec ?? "" })}</p>)}
             </div> : null}
           </div>
 
           {clipCount === 0 ? (
             <div className="rounded-xl border border-line-soft bg-surface-2/50 p-3 text-[11px] text-dim">
-              Add at least one clip to the timeline before exporting.
+              {t("Add at least one clip to the timeline before exporting.")}
             </div>
           ) : null}
         </div>

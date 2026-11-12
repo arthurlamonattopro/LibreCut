@@ -1,3 +1,5 @@
+import { relativeDate } from "./i18n";
+
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -57,15 +59,7 @@ export function formatDuration(seconds: number): string {
 }
 
 export function formatRelativeDate(timestamp: number): string {
-  const diff = Date.now() - timestamp;
-  const minute = 60_000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-  if (diff < minute) return "just now";
-  if (diff < hour) return `${Math.floor(diff / minute)}m ago`;
-  if (diff < day) return `${Math.floor(diff / hour)}h ago`;
-  if (diff < 7 * day) return `${Math.floor(diff / day)}d ago`;
-  return new Date(timestamp).toLocaleDateString();
+  return relativeDate(timestamp);
 }
 
 export function snapTime(

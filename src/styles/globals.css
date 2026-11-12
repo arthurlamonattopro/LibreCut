@@ -10,7 +10,9 @@
   --color-line-soft: #292c32;
   --color-ink: #f5f6f7;
   --color-muted: #a5a9b1;
-  --color-dim: #797f89;
+  /* Sits on the panel and the track surfaces above 4.5:1, so the small
+     labels stay readable at the sizes the editor uses. */
+  --color-dim: #85898f;
   --color-accent: #36c8d0;
   --color-accent-hover: #57d9df;
   --color-accent-soft: #36c8d020;
@@ -133,6 +135,19 @@
 
   input[type="checkbox"] {
     accent-color: var(--color-accent);
+  }
+
+  /* Motion is decoration here, so it is dropped for anyone who asked the
+     system for less of it. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 

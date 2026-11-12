@@ -15,7 +15,9 @@ import {
 } from "lucide-react";
 import { Modal } from "../../components/Modal";
 import { Logo } from "../../components/Logo";
+import { LocaleSelect } from "../../components/LocaleSelect";
 import { toast } from "../../components/Toast";
+import { t as translate, useT } from "../../lib/i18n";
 import { createProject } from "../../stores/projects";
 import {
   clearAllProjects,
@@ -65,10 +67,10 @@ function aspectLabel(width: number, height: number): string {
 }
 
 function runtimeSourceLabel(source: string): string {
-  if (source === "bundled") return "Bundled sidecar";
-  if (source === "override") return "Environment override";
-  if (source === "path") return "System PATH";
-  return "Not found";
+  if (source === "bundled") return translate("Bundled sidecar");
+  if (source === "override") return translate("Environment override");
+  if (source === "path") return translate("System PATH");
+  return translate("Not found");
 }
 
 function dimensions(aspect: Aspect, resolution: Resolution): { width: number; height: number } {
@@ -80,6 +82,7 @@ function dimensions(aspect: Aspect, resolution: Resolution): { width: number; he
 }
 
 export function Home({ onOpenProject }: HomeProps) {
+  const t = useT();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [newOpen, setNewOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -140,9 +143,9 @@ export function Home({ onOpenProject }: HomeProps) {
     try {
       const update = await check();
       setAvailableUpdate(update);
-      setUpdateStatus(update ? "An update is ready to review." : "You're up to date.");
+      setUpdateStatus(update ? t("An update is ready to review.") : t("You're up to date."));
     } catch (error) {
-      setUpdateStatus(`Update check failed: ${error instanceof Error ? error.message : String(error)}`);
+      setUpdateStatus(t("Update check failed: {error}", { error: error instanceof Error ? error.message : String(error) }));
     } finally {
       setCheckingUpdate(false);
     }
@@ -162,23 +165,23 @@ export function Home({ onOpenProject }: HomeProps) {
     } catch { /* Keep this preference best-effort if storage is unavailable. */ }
     if (!enabled) {
       setAvailableUpdate(null);
-      setUpdateStatus("Automatic update checks are off.");
+      setUpdateStatus(t("Automatic update checks are off."));
     }
   };
 
   const installUpdate = async () => {
     if (!availableUpdate || installingUpdate) return;
     setInstallingUpdate(true);
-    setUpdateProgress("Preparing update…");
+    setUpdateProgress(t("Preparing update…"));
     try {
       await availableUpdate.downloadAndInstall((event) => {
-        if (event.event === "Started") setUpdateProgress("Downloading update…");
-        if (event.event === "Progress") setUpdateProgress("Downloading and verifying update…");
-        if (event.event === "Finished") setUpdateProgress("Update installed. Restarting…");
+        if (event.event === "Started") setUpdateProgress(t("Downloading update…"));
+        if (event.event === "Progress") setUpdateProgress(t("Downloading and verifying update…"));
+        if (event.event === "Finished") setUpdateProgress(t("Update installed. Restarting…"));
       });
       await relaunch();
     } catch (error) {
-      setUpdateProgress(`Update failed: ${error instanceof Error ? error.message : String(error)}. Your current installation is unchanged.`);
+      setUpdateProgress(t("Update failed: {error}. Your current installation is unchanged.", { error: error instanceof Error ? error.message : String(error) }));
       setInstallingUpdate(false);
     }
   };
@@ -202,7 +205,7 @@ export function Home({ onOpenProject }: HomeProps) {
   const openProject = async (id: string) => {
     const project = await loadProjectById(id);
     if (!project) {
-      toast("That project could not be found in the project library.", "error");
+      toast(t("That project could not be found in the project library."), "error");
       return;
     }
     onOpenProject(project);
@@ -222,16 +225,16 @@ export function Home({ onOpenProject }: HomeProps) {
       if (typeof path !== "string") return;
       const item = parseProjectTemplate(JSON.parse(await loadProjectFile(path)));
       const next = [...customTemplates.filter((t) => t.name !== item.name), item];
-      localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(next)); setCustomTemplates(next); toast(`Imported template “${item.name}”.`, "success");
-    } catch (error) { toast(error instanceof Error ? error.message : "Could not import template.", "error"); }
+      localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(next)); setCustomTemplates(next); toast(t("Imported template “{name}”.", { name: item.name }), "success");
+    } catch (error) { toast(error instanceof Error ? error.message : t("Could not import template."), "error"); }
   };
   const exportTemplate = async (template: ProjectTemplate) => {
     try {
       const path = await saveDialog({ defaultPath: `${template.name.replace(/[\\/:*?"<>|]/g, "-")}.librectemplate`, filters: [{ name: "LibreCut template", extensions: ["librectemplate"] }] });
-      if (path) { await saveProjectFile(path, JSON.stringify(template, null, 2)); toast("Template exported.", "success"); }
-    } catch (error) { toast(error instanceof Error ? error.message : "Could not export template.", "error"); }
+      if (path) { await saveProjectFile(path, JSON.stringify(template, null, 2)); toast(t("Template exported."), "success"); }
+    } catch (error) { toast(error instanceof Error ? error.message : t("Could not export template."), "error"); }
   };
-  const saveCustomTemplate = (template: ProjectTemplate) => { const next = [...customTemplates.filter((t) => t.name !== template.name), template]; localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(next)); setCustomTemplates(next); toast("Custom template saved.", "success"); };
+  const saveCustomTemplate = (template: ProjectTemplate) => { const next = [...customTemplates.filter((t) => t.name !== template.name), template]; localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(next)); setCustomTemplates(next); toast(t("Custom template saved."), "success"); };
 
   const handleOpenFile = async () => {
     try {
@@ -240,13 +243,13 @@ export function Home({ onOpenProject }: HomeProps) {
       const raw = await loadProjectFile(path);
       const project = JSON.parse(raw) as Project;
       if (project.schemaVersion !== 1 || !Array.isArray(project.tracks)) {
-        throw new Error("Unsupported project file");
+        throw new Error(t("Unsupported project file"));
       }
       normalizeProject(project);
       await persistProject(project);
       onOpenProject(project);
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not open that project.", "error");
+      toast(error instanceof Error ? error.message : t("Could not open that project."), "error");
     }
   };
 
@@ -255,14 +258,14 @@ export function Home({ onOpenProject }: HomeProps) {
     await deleteProject(deleteTarget.id);
     setDeleteTarget(null);
     refresh();
-    toast("Project deleted.", "success");
+    toast(t("Project deleted."), "success");
   };
 
   const confirmClear = async () => {
     await clearAllProjects();
     setProjects([]);
     setClearOpen(false);
-    toast("Local project data cleared.", "success");
+    toast(t("Local project data cleared."), "success");
   };
 
   return (
@@ -273,22 +276,22 @@ export function Home({ onOpenProject }: HomeProps) {
         </div>
 
         <nav className="space-y-1">
-          <NavItem icon={LayoutGrid} label="Projects" active />
+          <NavItem icon={LayoutGrid} label={t("Projects")} active />
           <button
             className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[12px] font-medium text-muted transition hover:bg-white/[0.04] hover:text-ink"
             onClick={() => setFirstRunOpen(true)}
           >
-            <BookOpen size={14} />
-            <span className="flex-1 text-left">Getting started</span>
+            <BookOpen size={14} aria-hidden="true" />
+            <span className="flex-1 text-left">{t("Getting started")}</span>
           </button>
         </nav>
 
         <div className="mt-auto border-t border-line-soft pt-3">
           <button className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] text-muted transition hover:bg-white/5 hover:text-ink" onClick={() => setAboutOpen(true)}>
-            <Info size={14} /> About
+            <Info size={14} aria-hidden="true" /> {t("About")}
           </button>
           <button className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] text-muted transition hover:bg-white/5 hover:text-ink" onClick={() => setSettingsOpen(true)}>
-            <Settings size={14} /> Settings
+            <Settings size={14} aria-hidden="true" /> {t("Settings")}
           </button>
           <div className="px-2.5 pb-1 pt-2 text-[10px] text-dim">v{appVersion}</div>
         </div>
@@ -297,15 +300,15 @@ export function Home({ onOpenProject }: HomeProps) {
       <main className="relative flex min-w-0 flex-1 flex-col">
         <header className="flex h-[54px] shrink-0 items-center justify-between gap-6 border-b border-line-soft px-7">
           <div className="flex items-baseline gap-2">
-            <h1 className="text-[14px] font-semibold text-ink">Projects</h1>
+            <h1 className="text-[14px] font-semibold text-ink">{t("Projects")}</h1>
             <span className="font-mono text-[10px] tabular-nums text-dim">{projects.length}</span>
           </div>
           <div className="flex items-center gap-2">
-            <button className="btn btn-ghost btn-icon md:w-auto md:px-[13px]" onClick={handleOpenFile} title="Open project" aria-label="Open project">
-              <FolderOpen size={14} /> <span className="hidden md:inline">Open project</span>
+            <button className="btn btn-ghost btn-icon md:w-auto md:px-[13px]" onClick={handleOpenFile} title={t("Open project")} aria-label={t("Open project")}>
+              <FolderOpen size={14} aria-hidden="true" /> <span className="hidden md:inline">{t("Open project")}</span>
             </button>
-            <button className="btn btn-primary" onClick={() => setNewOpen(true)} title="New project" aria-label="New project">
-              <Plus size={15} /> <span className="hidden sm:inline">New project</span>
+            <button className="btn btn-primary" onClick={() => setNewOpen(true)} title={t("New project")} aria-label={t("New project")}>
+              <Plus size={15} aria-hidden="true" /> <span className="hidden sm:inline">{t("New project")}</span>
             </button>
           </div>
         </header>
@@ -315,7 +318,7 @@ export function Home({ onOpenProject }: HomeProps) {
             <EmptyState />
           ) : (
             <>
-              <h2 className="mb-2 text-[12px] font-semibold text-muted">All projects</h2>
+              <h2 className="mb-2 text-[12px] font-semibold text-muted">{t("All projects")}</h2>
               <div className="divide-y divide-line-soft">
                 {projects.map((project) => (
                   <article key={project.id} className="group flex items-center gap-4 py-3">
@@ -324,12 +327,12 @@ export function Home({ onOpenProject }: HomeProps) {
                         {project.thumbnail ? (
                           <img src={project.thumbnail} alt="" className="h-full w-full object-cover" />
                         ) : (
-                          <Film size={19} className="text-dim" />
+                          <Film size={19} className="text-dim" aria-hidden="true" />
                         )}
                       </div>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[13px] font-medium text-ink group-hover:text-accent">{project.name}</span>
-                        <span className="mt-1 block text-[11px] text-muted">Edited {formatRelativeDate(project.updatedAt)}</span>
+                        <span className="mt-1 block text-[11px] text-muted">{t("Edited {date}", { date: formatRelativeDate(project.updatedAt) })}</span>
                       </span>
                       <span className="hidden w-[170px] shrink-0 text-[11px] text-muted xl:block">
                         {aspectLabel(project.width, project.height)} <span className="text-dim">·</span> {project.fps} fps
@@ -341,9 +344,9 @@ export function Home({ onOpenProject }: HomeProps) {
                     <button
                       className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-dim opacity-0 transition hover:bg-white/5 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
                       onClick={() => setDeleteTarget(project)}
-                      aria-label={`Delete ${project.name}`}
+                      aria-label={t("Delete {name}", { name: project.name })}
                     >
-                      <Trash2 size={14} />
+                      <Trash2 size={14} aria-hidden="true" />
                     </button>
                   </article>
                 ))}
@@ -354,9 +357,9 @@ export function Home({ onOpenProject }: HomeProps) {
 
         <footer className="flex items-center justify-between border-t border-line-soft px-7 py-2 text-[10px] text-dim">
           <span className="flex items-center gap-1.5">
-            <Github size={11} /> Open source · GPL-3.0
+            <Github size={11} aria-hidden="true" /> {t("Open source · GPL-3.0")}
           </span>
-          <span>Projects stay on this PC.</span>
+          <span>{t("Projects stay on this PC.")}</span>
         </footer>
       </main>
 
@@ -374,96 +377,102 @@ export function Home({ onOpenProject }: HomeProps) {
       <Modal
         open={Boolean(deleteTarget)}
         onClose={() => setDeleteTarget(null)}
-        title="Delete project?"
-        description={`“${deleteTarget?.name ?? ""}” will be removed from this PC. This cannot be undone.`}
+        title={t("Delete project?")}
+        description={t("“{name}” will be removed from this PC. This cannot be undone.", { name: deleteTarget?.name ?? "" })}
         width={430}
         footer={
           <>
-            <button className="btn btn-ghost" onClick={() => setDeleteTarget(null)}>Cancel</button>
-            <button className="btn btn-danger" onClick={confirmDelete}>Delete project</button>
+            <button className="btn btn-ghost" onClick={() => setDeleteTarget(null)}>{t("Cancel")}</button>
+            <button className="btn btn-danger" onClick={confirmDelete}>{t("Delete project")}</button>
           </>
         }
       >
         <div className="rounded-xl border border-line-soft bg-surface-2/60 p-3 text-[12px] leading-relaxed text-muted">
-          Exported videos are not affected. Only the editable project stored in LibreCut is removed.
+          {t("Exported videos are not affected. Only the editable project stored in LibreCut is removed.")}
         </div>
       </Modal>
 
       <Modal
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        title="Settings"
-        description="LibreCut is local-first by design. These settings apply to this installation."
+        title={t("Settings")}
+        description={t("LibreCut is local-first by design. These settings apply to this installation.")}
         width={520}
       >
         <div className="space-y-4">
           <div className="rounded-xl border border-line-soft bg-surface-2/50 p-4">
+            <LocaleSelect />
+            <p className="mt-2 text-[11.5px] leading-relaxed text-dim">
+              {t("Choose the language used for menus, dialogs, and labels. AI captions and speech keep their own language setting.")}
+            </p>
+          </div>
+          <div className="rounded-xl border border-line-soft bg-surface-2/50 p-4">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <div className="text-[12.5px] font-medium">Local project storage</div>
+                <div className="text-[12.5px] font-medium">{t("Local project storage")}</div>
                 <p className="mt-1 text-[11.5px] leading-relaxed text-dim">
-                  Projects are saved in this app's local storage. Export a copy to keep a file backup.
+                  {t("Projects are saved in this app's local storage. Export a copy to keep a file backup.")}
                 </p>
               </div>
-              <span className="chip">{projects.length} projects</span>
+              <span className="chip">{t(projects.length === 1 ? "{count} project" : "{count} projects", { count: projects.length })}</span>
             </div>
           </div>
           <div className="rounded-xl border border-line-soft bg-surface-2/50 p-4">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <div className="text-[12.5px] font-medium">FFmpeg runtime</div>
+                <div className="text-[12.5px] font-medium">{t("FFmpeg runtime")}</div>
                 <p className="mt-1 text-[11.5px] leading-relaxed text-dim">
-                  Import, proxies, and export use the FFmpeg sidecar bundled with LibreCut.
+                  {t("Import, proxies, and export use the FFmpeg sidecar bundled with LibreCut.")}
                 </p>
                 <div className="mt-1.5 break-all font-mono text-[9.5px] text-dim">
                   {checkingRuntime
-                    ? "Checking…"
+                    ? t("Checking…")
                     : runtime
                       ? `${runtimeSourceLabel(runtime.ffmpeg.source)} · ${runtime.ffmpeg.version?.split(" Copyright")[0] ?? "FFmpeg"}`
-                      : "Runtime status unavailable"}
+                      : t("Runtime status unavailable")}
                 </div>
               </div>
               <span className={`chip shrink-0 ${runtime?.ready ? "text-mint" : runtime ? "text-accent" : ""}`}>
-                {checkingRuntime ? "Checking…" : runtime?.ready ? "Ready" : runtime ? "Missing" : "Unknown"}
+                {checkingRuntime ? t("Checking…") : runtime?.ready ? t("Ready") : runtime ? t("Missing") : t("Unknown")}
               </span>
             </div>
             <button className="btn btn-ghost btn-sm mt-2" onClick={() => void refreshRuntime()} disabled={checkingRuntime}>
-              <RefreshCw size={12} className={checkingRuntime ? "animate-spin" : ""} /> Recheck runtime
+              <RefreshCw size={12} className={checkingRuntime ? "animate-spin" : ""} aria-hidden="true" /> {t("Recheck runtime")}
             </button>
           </div>
           <div className="rounded-xl border border-line-soft bg-surface-2/50 p-4">
-            <div className="text-[12.5px] font-medium">Privacy</div>
+            <div className="text-[12.5px] font-medium">{t("Privacy")}</div>
             <p className="mt-1 text-[11.5px] leading-relaxed text-dim">
-              No accounts, analytics, or cloud uploads. Media is processed by the bundled FFmpeg runtime on your machine. Update checks only contact GitHub when enabled.
+              {t("No accounts, analytics, or cloud uploads. Media is processed by the bundled FFmpeg runtime on your machine. Update checks only contact GitHub when enabled.")}
             </p>
           </div>
           <div className="rounded-xl border border-line-soft bg-surface-2/50 p-4">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-[12.5px] font-medium">Application updates</div>
-                <p className="mt-1 text-[11.5px] leading-relaxed text-dim">Current version: <span className="font-mono">{appVersion}</span>. Stable releases are checked from GitHub only when enabled.</p>
+                <div className="text-[12.5px] font-medium">{t("Application updates")}</div>
+                <p className="mt-1 text-[11.5px] leading-relaxed text-dim">{t("Current version:")} <span className="font-mono">{appVersion}</span>. {t("Stable releases are checked from GitHub only when enabled.")}</p>
               </div>
               <label className="flex shrink-0 items-center gap-2 text-[11px] text-muted">
-                <input type="checkbox" checked={autoUpdate} onChange={(event) => toggleAutoUpdate(event.target.checked)} aria-label="Enable automatic update checks" />
-                Check automatically
+                <input type="checkbox" checked={autoUpdate} onChange={(event) => toggleAutoUpdate(event.target.checked)} aria-label={t("Enable automatic update checks")} />
+                {t("Check automatically")}
               </label>
             </div>
             {availableUpdate ? (
               <div className="mt-3 rounded-lg border border-line-soft bg-panel/70 p-3">
-                <div className="text-[12px] font-medium">Version {availableUpdate.version} is available</div>
-                <div className="mt-2 max-h-36 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-muted">{availableUpdate.body?.trim() || "No release notes were provided."}</div>
+                <div className="text-[12px] font-medium">{t("Version {version} is available", { version: availableUpdate.version })}</div>
+                <div className="mt-2 max-h-36 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-muted">{availableUpdate.body?.trim() || t("No release notes were provided.")}</div>
                 <button className="btn btn-primary btn-sm mt-3" onClick={() => void installUpdate()} disabled={installingUpdate}>
-                  <Download size={12} /> {installingUpdate ? updateProgress || "Installing…" : "Download and install"}
+                  <Download size={12} aria-hidden="true" /> {installingUpdate ? updateProgress || t("Installing…") : t("Download and install")}
                 </button>
               </div>
             ) : null}
             {updateStatus || updateProgress ? <p className="mt-2 text-[10.5px] leading-relaxed text-dim" role="status">{updateProgress || updateStatus}</p> : null}
             <button className="btn btn-ghost btn-sm mt-2" onClick={() => void checkForUpdates()} disabled={checkingUpdate || installingUpdate}>
-              <RefreshCw size={12} className={checkingUpdate ? "animate-spin" : ""} /> {checkingUpdate ? "Checking…" : "Check for updates"}
+              <RefreshCw size={12} className={checkingUpdate ? "animate-spin" : ""} aria-hidden="true" /> {checkingUpdate ? t("Checking…") : t("Check for updates")}
             </button>
           </div>
           <button className="btn btn-danger w-full" onClick={() => setClearOpen(true)}>
-            <Trash2 size={14} /> Clear all local projects
+            <Trash2 size={14} aria-hidden="true" /> {t("Clear all local projects")}
           </button>
         </div>
       </Modal>
@@ -471,18 +480,18 @@ export function Home({ onOpenProject }: HomeProps) {
       <Modal
         open={clearOpen}
         onClose={() => setClearOpen(false)}
-        title="Clear all local projects?"
-        description="Every editable project stored by LibreCut on this PC will be deleted. Exported videos are untouched."
+        title={t("Clear all local projects?")}
+        description={t("Every editable project stored by LibreCut on this PC will be deleted. Exported videos are untouched.")}
         width={430}
         footer={
           <>
-            <button className="btn btn-ghost" onClick={() => setClearOpen(false)}>Cancel</button>
-            <button className="btn btn-danger" onClick={confirmClear}>Clear everything</button>
+            <button className="btn btn-ghost" onClick={() => setClearOpen(false)}>{t("Cancel")}</button>
+            <button className="btn btn-danger" onClick={confirmClear}>{t("Clear everything")}</button>
           </>
         }
       >
         <div className="rounded-xl border border-accent/20 bg-accent-soft/40 p-3 text-[12px] leading-relaxed text-accent">
-          This action cannot be undone.
+          {t("This action cannot be undone.")}
         </div>
       </Modal>
 
@@ -492,14 +501,14 @@ export function Home({ onOpenProject }: HomeProps) {
             <Logo size={44} />
             <div>
               <div className="text-[15px] font-semibold">LibreCut {appVersion}</div>
-              <div className="text-[11.5px] text-dim">A local-first video editor for Windows</div>
+              <div className="text-[11.5px] text-dim">{t("A local-first video editor for Windows")}</div>
             </div>
           </div>
           <p className="text-[12.5px] leading-relaxed text-muted">
-            LibreCut is free and open-source software. It is not affiliated with CapCut or ByteDance. Built with Tauri, Rust, React, and FFmpeg.
+            {t("LibreCut is free and open-source software. It is not affiliated with CapCut or ByteDance. Built with Tauri, Rust, React, and FFmpeg.")}
           </p>
           <div className="rounded-xl border border-line-soft bg-surface-2/60 p-3 text-[11.5px] leading-relaxed text-dim">
-            Licensed under GPL-3.0. FFmpeg is distributed under its own license. See THIRD_PARTY_LICENSES.md in the repository.
+            {t("Licensed under GPL-3.0. FFmpeg is distributed under its own license. See THIRD_PARTY_LICENSES.md in the repository.")}
           </div>
         </div>
       </Modal>
@@ -514,25 +523,27 @@ function NavItem({ icon: Icon, label, active }: {
 }) {
   return (
     <button
+      aria-current={active ? "page" : undefined}
       className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[12px] font-medium transition ${
         active
           ? "bg-white/[0.06] text-ink"
           : "text-muted hover:bg-white/[0.04] hover:text-ink"
       }`}
     >
-      <Icon size={14} className={active ? "text-accent" : ""} />
+      <Icon size={14} className={active ? "text-accent" : ""} aria-hidden="true" />
       <span className="flex-1 text-left">{label}</span>
     </button>
   );
 }
 
 function EmptyState() {
+  const t = useT();
   return (
     <div className="flex min-h-[280px] items-center">
       <div className="max-w-[380px]">
-        <h2 className="text-[18px] font-semibold tracking-[-0.02em]">No projects yet</h2>
+        <h2 className="text-[18px] font-semibold tracking-[-0.02em]">{t("No projects yet")}</h2>
         <p className="mt-2 text-[12.5px] leading-relaxed text-muted">
-          Create a project to choose a frame size and start editing. Your files stay on this PC.
+          {t("Create a project to choose a frame size and start editing. Your files stay on this PC.")}
         </p>
       </div>
     </div>
@@ -556,7 +567,8 @@ function NewProjectModal({
   onExportTemplate: (template: ProjectTemplate) => void;
   onSaveCustomTemplate: (template: ProjectTemplate) => void;
 }) {
-  const [name, setName] = useState("Untitled project");
+  const t = useT();
+  const [name, setName] = useState(() => t("Untitled project"));
   const [aspect, setAspect] = useState<Aspect>("16:9");
   const [resolution, setResolution] = useState<Resolution>("1080");
   const [fps, setFps] = useState(30);
@@ -566,13 +578,16 @@ function NewProjectModal({
 
   useEffect(() => {
     if (open) {
-      setName("Untitled project");
+      setName(t("Untitled project"));
       setAspect("16:9");
       setResolution("1080");
       setFps(30);
       setTemplate(null);
       window.setTimeout(() => inputRef.current?.select(), 80);
     }
+    // Reset the defaults only when the dialog opens; a locale change while it is
+    // closed is picked up by the next open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const preview = dimensions(aspect, resolution);
@@ -581,28 +596,58 @@ function NewProjectModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="New project"
-      description="Choose a canvas. You can change the export size later without changing the edit."
+      title={t("New project")}
+      description={t("Choose a canvas. You can change the export size later without changing the edit.")}
       width={560}
       footer={
         <>
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-ghost" onClick={onClose}>{t("Cancel")}</button>
           <button className="btn btn-primary" onClick={() => onCreate(name, aspect, resolution, fps, template ?? undefined)}>
-            <Plus size={15} /> Create project
+            <Plus size={15} aria-hidden="true" /> {t("Create project")}
           </button>
         </>
       }
     >
       <div className="space-y-5">
         <div>
-          <span className="label">Start from template</span>
-          <div className="mb-2 flex gap-2"><button className="btn btn-ghost" type="button" onClick={onImportTemplate}><Upload size={13}/> Import</button><input className="field min-w-0 flex-1" placeholder="Custom template name" value={customName} onChange={(e) => setCustomName(e.target.value)} /><button className="btn btn-ghost" type="button" disabled={!customName.trim()} onClick={() => { const d = dimensions(aspect, resolution); const item = parseProjectTemplate({ formatVersion: 1, name: customName.trim(), description: `${aspect} canvas · ${resolution}p · ${fps} fps`, ...d, fps, tracks: [] }); onSaveCustomTemplate(item); setTemplate(item); setCustomName(""); }}>Save</button></div>
+          <span className="label">{t("Start from template")}</span>
+          <div className="mb-2 flex gap-2"><button className="btn btn-ghost" type="button" onClick={onImportTemplate}><Upload size={13} aria-hidden="true"/> {t("Import")}</button><input className="field min-w-0 flex-1" placeholder={t("Custom template name")} aria-label={t("Custom template name")} value={customName} onChange={(e) => setCustomName(e.target.value)} /><button className="btn btn-ghost" type="button" disabled={!customName.trim()} onClick={() => { const d = dimensions(aspect, resolution); const item = parseProjectTemplate({ formatVersion: 1, name: customName.trim(), description: `${aspect} canvas · ${resolution}p · ${fps} fps`, ...d, fps, tracks: [] }); onSaveCustomTemplate(item); setTemplate(item); setCustomName(""); }}>{t("Save")}</button></div>
           <div className="grid grid-cols-3 gap-2">
-            {[...BUILT_IN_TEMPLATES, ...customTemplates].map((item) => <button key={item.name} type="button" className={`rounded-lg border p-2 text-left text-[10px] ${template?.name === item.name ? "border-accent bg-accent-soft" : "border-line bg-surface-2/50"}`} onClick={() => { setTemplate(item); setAspect(item.width > item.height ? "16:9" : item.width === item.height ? "1:1" : "9:16"); setResolution((item.height >= 2000 || item.width >= 2000 ? "2160" : item.height >= 1400 || item.width >= 1400 ? "1440" : "1080")); setFps(item.fps); }}><span className="flex items-center justify-between font-medium">{item.name}{customTemplates.includes(item) && <span role="button" title="Export template" onClick={(e) => { e.stopPropagation(); onExportTemplate(item); }}><Download size={12}/></span>}</span><span className="mt-1 block text-dim">{item.description}</span><span className="mt-2 flex h-9 items-center justify-center rounded bg-black/20"><span className="block border border-accent/60 bg-accent/10" style={{ width: `${Math.max(12, 60 * item.width / Math.max(item.width, item.height))}px`, height: `${Math.max(12, 34 * item.height / Math.max(item.width, item.height))}px` }}/></span><span className="mt-1 block text-dim">{item.width} × {item.height} · {item.fps} fps</span></button>)}
+            {[...BUILT_IN_TEMPLATES, ...customTemplates].map((item) => (
+              <div key={item.name} className={`relative rounded-lg border p-2 text-left text-[10px] ${template?.name === item.name ? "border-accent bg-accent-soft" : "border-line bg-surface-2/50"}`}>
+                <button
+                  type="button"
+                  aria-pressed={template?.name === item.name}
+                  className="block w-full text-left"
+                  onClick={() => {
+                    setTemplate(item);
+                    setAspect(item.width > item.height ? "16:9" : item.width === item.height ? "1:1" : "9:16");
+                    setResolution((item.height >= 2000 || item.width >= 2000 ? "2160" : item.height >= 1400 || item.width >= 1400 ? "1440" : "1080"));
+                    setFps(item.fps);
+                  }}
+                >
+                  <span className="flex items-center justify-between font-medium">{item.name}</span>
+                  <span className="mt-1 block text-dim">{item.description}</span>
+                  <span className="mt-2 flex h-9 items-center justify-center rounded bg-black/20" aria-hidden="true"><span className="block border border-accent/60 bg-accent/10" style={{ width: `${Math.max(12, 60 * item.width / Math.max(item.width, item.height))}px`, height: `${Math.max(12, 34 * item.height / Math.max(item.width, item.height))}px` }}/></span>
+                  <span className="mt-1 block text-dim">{item.width} × {item.height} · {item.fps} fps</span>
+                </button>
+                {customTemplates.includes(item) ? (
+                  <button
+                    type="button"
+                    aria-label={t("Export the {name} template", { name: item.name })}
+                    title={t("Export template")}
+                    className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-md text-dim transition hover:bg-white/10 hover:text-ink"
+                    onClick={() => onExportTemplate(item)}
+                  >
+                    <Download size={12} aria-hidden="true" />
+                  </button>
+                ) : null}
+              </div>
+            ))}
           </div>
         </div>
         <div>
-          <label className="label" htmlFor="project-name">Project name</label>
+          <label className="label" htmlFor="project-name">{t("Project name")}</label>
           <input
             id="project-name"
             ref={inputRef}
@@ -616,15 +661,16 @@ function NewProjectModal({
         </div>
 
         <div>
-          <span className="label">Aspect ratio</span>
+          <span className="label">{t("Aspect ratio")}</span>
           <div className="grid grid-cols-3 gap-2">
             {([
-              ["16:9", "Landscape", "YouTube, desktop"],
-              ["9:16", "Vertical", "TikTok, Reels, Shorts"],
-              ["1:1", "Square", "Feed posts"],
+              ["16:9", t("Landscape"), t("YouTube, desktop")],
+              ["9:16", t("Vertical"), t("TikTok, Reels, Shorts")],
+              ["1:1", t("Square"), t("Feed posts")],
             ] as const).map(([value, title, hint]) => (
               <button
                 key={value}
+                aria-pressed={aspect === value}
                 className={`rounded-xl border p-3 text-left transition ${
                   aspect === value
                     ? "border-accent/60 bg-accent-soft shadow-[0_0_0_1px_#36c8d030]"
@@ -651,25 +697,25 @@ function NewProjectModal({
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="label" htmlFor="resolution">Resolution</label>
+            <label className="label" htmlFor="resolution">{t("Resolution")}</label>
             <select id="resolution" className="field" value={resolution} onChange={(event) => setResolution(event.target.value as Resolution)}>
               <option value="1080">1080p · {aspect === "9:16" ? "1080×1920" : aspect === "1:1" ? "1080×1080" : "1920×1080"}</option>
               <option value="1440">1440p · {aspect === "9:16" ? "1440×2560" : aspect === "1:1" ? "1440×1440" : "2560×1440"}</option>
-              <option value="2160">4K · {aspect === "9:16" ? "2160×3840" : aspect === "1:1" ? "2160×2160" : "3840×2160"}</option>
+              <option value="2160">{t("4K")} · {aspect === "9:16" ? "2160×3840" : aspect === "1:1" ? "2160×2160" : "3840×2160"}</option>
             </select>
           </div>
           <div>
-            <label className="label" htmlFor="fps">Frame rate</label>
+            <label className="label" htmlFor="fps">{t("Frame rate")}</label>
             <select id="fps" className="field" value={fps} onChange={(event) => setFps(Number(event.target.value))}>
-              <option value={24}>24 fps · cinematic</option>
-              <option value={30}>30 fps · standard</option>
-              <option value={60}>60 fps · smooth</option>
+              <option value={24}>24 fps · {t("cinematic")}</option>
+              <option value={30}>30 fps · {t("standard")}</option>
+              <option value={60}>60 fps · {t("smooth")}</option>
             </select>
           </div>
         </div>
 
         <div className="flex items-center justify-between rounded-xl border border-line-soft bg-surface-2/50 px-3.5 py-2.5 text-[11.5px] text-dim">
-          <span>Canvas</span>
+          <span>{t("Canvas")}</span>
           <span className="font-mono text-[11px] text-muted">{preview.width} × {preview.height} · {fps} fps</span>
         </div>
       </div>

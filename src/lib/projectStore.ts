@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "./media";
+import { normalizeProject } from "./project";
 import type { Project, ProjectSummary } from "./types";
 
 /** Regenerable per-asset media caches: poster frames and waveform peaks. */
@@ -127,7 +128,8 @@ export async function loadProject(id: string): Promise<Project | null> {
     if (!document) return null;
     const project = JSON.parse(document) as Project;
     const parsedCache = cache ? (JSON.parse(cache) as ProjectCache) : null;
-    return mergeProjectCache(project, parsedCache);
+    // Older documents get the values they are missing before they are used.
+    return normalizeProject(mergeProjectCache(project, parsedCache));
   } catch {
     return readLocalProject(id);
   }

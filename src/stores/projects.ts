@@ -1,5 +1,6 @@
 import type { Project, Track, TrackKind } from "../lib/types";
 import { DEFAULT_DUCKING } from "../lib/audio";
+import { t } from "../lib/i18n";
 
 export function newId(): string {
   return crypto.randomUUID();
@@ -30,7 +31,7 @@ export function createProject(
   return {
     schemaVersion: 1,
     id: newId(),
-    name: name.trim() || "Untitled project",
+    name: name.trim() || t("Untitled project"),
     width,
     height,
     fps,
@@ -38,9 +39,9 @@ export function createProject(
     updatedAt: now,
     assets: [],
     tracks: [
-      createTrack("video", "Video 1", true),
-      createTrack("audio", "Audio 1"),
-      createTrack("text", "Text 1"),
+      createTrack("video", t("Video {number}", { number: 1 }), true),
+      createTrack("audio", t("Audio {number}", { number: 1 })),
+      createTrack("text", t("Text {number}", { number: 1 })),
     ],
   };
 }

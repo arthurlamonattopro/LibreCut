@@ -12,11 +12,16 @@ import { persistProject } from "../../lib/projectStore";
 import { pickProjectPath, saveProjectFile } from "../../lib/media";
 import { recordMetric } from "../../lib/metrics";
 import { toast } from "../../components/Toast";
+import { announce } from "../../lib/announce";
+import { hasOpenDialog } from "../../lib/a11y";
+import { useT } from "../../lib/i18n";
+import { formatDuration } from "../../lib/time";
 import type { Project } from "../../lib/types";
 
 const AUTOSAVE_DELAY_MS = 700;
 
 export function Editor({ onBack }: { onBack: () => void }) {
+  const t = useT();
   const project = useEditor((state) => state.project);
   const dirty = useEditor((state) => state.dirty);
   const mediaRevision = useEditor((state) => state.mediaRevision);
@@ -43,11 +48,11 @@ export function Editor({ onBack }: { onBack: () => void }) {
       const path = await pickProjectPath(current.name);
       if (!path) return;
       await saveProjectFile(path, JSON.stringify(current, null, 2));
-      toast("Project copy saved.", "success");
+      toast(t("Project copy saved."), "success");
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not save the project copy.", "error");
+      toast(error instanceof Error ? error.message : t("Could not save the project copy."), "error");
     }
-  }, []);
+  }, [t]);
 
   const flushSave = useCallback(async () => {
     if (savingRef.current) return;
@@ -68,13 +73,13 @@ export function Editor({ onBack }: { onBack: () => void }) {
       // A newer edit may have arrived while this save was running.
       if (!pendingSaveRef.current) markSaved();
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not save the project.", "error");
+      toast(error instanceof Error ? error.message : t("Could not save the project."), "error");
     } finally {
       savingRef.current = false;
       setSaving(false);
       if (pendingSaveRef.current) void flushSave();
     }
-  }, [markSaved]);
+  }, [markSaved, t]);
 
   useEffect(() => {
     if (!project || !dirty) {
@@ -123,6 +128,10 @@ export function Editor({ onBack }: { onBack: () => void }) {
       const command = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
 
+      // A dialog owns the keyboard while it is open, so the shortcuts of the
+      // editor behind it do not fire.
+      if (hasOpenDialog()) return;
+
       if (command && key === "s") {
         event.preventDefault();
         void saveCopy();
@@ -140,11 +149,13 @@ export function Editor({ onBack }: { onBack: () => void }) {
         event.preventDefault();
         if (event.shiftKey) state.redo();
         else state.undo();
+        announce(event.shiftKey ? t("Redo.") : t("Undo."));
         return;
       }
       if (command && key === "y") {
         event.preventDefault();
         state.redo();
+        announce(t("Redo."));
         return;
       }
       if (command && key === "d") {
@@ -152,6 +163,10 @@ export function Editor({ onBack }: { onBack: () => void }) {
         if (state.selectedClipId) state.duplicateClip(state.selectedClipId);
         return;
       }
+
+      // Modified arrow keys belong to the timeline, which uses them to walk
+      // the clips and to move and trim the focused one.
+      if (command || event.altKey) return;
 
       switch (event.key) {
         case " ":
@@ -162,21 +177,27 @@ export function Editor({ onBack }: { onBack: () => void }) {
         case "Delete":
         case "Backspace":
           event.preventDefault();
-          state.deleteSelected();
+          if (state.selectedClipId) {
+            state.deleteSelected();
+            announce(t("Clip removed from the timeline."));
+          }
           break;
         case "ArrowLeft":
           event.preventDefault();
           state.setPlaying(false);
           state.setCurrentTime(state.currentTime - (event.shiftKey ? 1 : 1 / (state.project?.fps ?? 30)));
+          announce(t("Playhead {time}.", { time: formatDuration(useEditor.getState().currentTime) }));
           break;
         case "ArrowRight":
           event.preventDefault();
           state.setPlaying(false);
           state.setCurrentTime(state.currentTime + (event.shiftKey ? 1 : 1 / (state.project?.fps ?? 30)));
+          announce(t("Playhead {time}.", { time: formatDuration(useEditor.getState().currentTime) }));
           break;
         case "Home":
           event.preventDefault();
           state.setCurrentTime(0);
+          announce(t("Playhead at the start."));
           break;
         case "End":
           event.preventDefault();
@@ -186,6 +207,7 @@ export function Editor({ onBack }: { onBack: () => void }) {
               0,
             );
             state.setCurrentTime(end);
+            announce(t("Playhead at the end."));
           }
           break;
         case "Escape":
@@ -204,6 +226,7 @@ export function Editor({ onBack }: { onBack: () => void }) {
           if (key === "s") {
             event.preventDefault();
             state.splitAtPlayhead();
+            announce(t("Clip split at the playhead."));
           }
           break;
       }
@@ -211,7 +234,7 @@ export function Editor({ onBack }: { onBack: () => void }) {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [saveCopy]);
+  }, [saveCopy, t]);
 
   if (!project) return null;
 
@@ -230,12 +253,12 @@ export function Editor({ onBack }: { onBack: () => void }) {
       <TopBar onBack={goBack} onExport={() => setExportOpen(true)} onSaveCopy={() => void saveCopy()} onAiTools={() => setAiOpen(true)} onShowPerformance={() => setPerformanceOpen(true)} saving={saving} />
       <div className="flex min-h-0 flex-1">
         <MediaPanel width={mediaWidth} onOpenAi={(tool, imageId) => { setAiTool(tool); setAiImageId(imageId); setAiOpen(true); }} />
-        <ResizeHandle axis="x" onResize={(delta) => setMediaWidth((value) => Math.max(180, Math.min(480, value + delta)))} onCommit={(value) => localStorage.setItem("librecut:media-width", String(value))} value={mediaWidth} />
+        <ResizeHandle axis="x" label={t("Resize the media panel")} min={180} max={480} onResize={(delta) => setMediaWidth((value) => Math.max(180, Math.min(480, value + delta)))} onCommit={(value) => localStorage.setItem("librecut:media-width", String(value))} value={mediaWidth} />
         <Preview />
-        <ResizeHandle axis="x" reverse onResize={(delta) => setInspectorWidth((value) => Math.max(220, Math.min(480, value + delta)))} onCommit={(value) => localStorage.setItem("librecut:inspector-width", String(value))} value={inspectorWidth} />
+        <ResizeHandle axis="x" reverse label={t("Resize the inspector")} min={220} max={480} onResize={(delta) => setInspectorWidth((value) => Math.max(220, Math.min(480, value + delta)))} onCommit={(value) => localStorage.setItem("librecut:inspector-width", String(value))} value={inspectorWidth} />
         <Inspector width={inspectorWidth} />
       </div>
-      <ResizeHandle axis="y" reverse onResize={(delta) => setTimelineHeight((value) => Math.max(180, Math.min(620, value + delta)))} onCommit={(value) => localStorage.setItem("librecut:timeline-height", String(value))} value={timelineHeight} />
+      <ResizeHandle axis="y" reverse label={t("Resize the timeline")} min={180} max={620} onResize={(delta) => setTimelineHeight((value) => Math.max(180, Math.min(620, value + delta)))} onCommit={(value) => localStorage.setItem("librecut:timeline-height", String(value))} value={timelineHeight} />
       <Timeline height={timelineHeight} />
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
       <AiStudio open={aiOpen} onClose={() => setAiOpen(false)} initialTool={aiTool} initialImageId={aiImageId} />
@@ -244,20 +267,30 @@ export function Editor({ onBack }: { onBack: () => void }) {
   );
 }
 
-function ResizeHandle({ axis, reverse = false, onResize, onCommit, value }: {
+function ResizeHandle({ axis, label, min, max, reverse = false, onResize, onCommit, value }: {
   axis: "x" | "y";
+  /** The name of the panel this handle resizes. */
+  label: string;
+  /** The bounds of the panel size, in pixels. */
+  min: number;
+  max: number;
   reverse?: boolean;
   onResize: (delta: number) => void;
   onCommit: (value: number) => void;
   value: number;
 }) {
+  const t = useT();
   const start = useRef<{ x: number; y: number } | null>(null);
   const latest = useRef(value);
   latest.current = value;
   return <div
     role="separator"
     aria-orientation={axis === "x" ? "vertical" : "horizontal"}
-    aria-label={axis === "x" ? "Resize editor panel" : "Resize timeline"}
+    aria-label={label}
+    aria-valuemin={min}
+    aria-valuemax={max}
+    aria-valuenow={value}
+    aria-valuetext={t("{value} pixels", { value })}
     tabIndex={0}
     className={`group relative z-20 shrink-0 touch-none bg-line-soft transition-colors hover:bg-accent/70 focus-visible:bg-accent ${axis === "x" ? "w-1 cursor-col-resize" : "h-1 cursor-row-resize"}`}
     onPointerDown={(event) => {

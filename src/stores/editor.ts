@@ -12,6 +12,7 @@ import {
   DEFAULT_TREBLE_FREQUENCY,
 } from "../lib/audio";
 import { createTrack, newId } from "./projects";
+import { t } from "../lib/i18n";
 
 export type ClipPatch = Omit<Partial<Clip>, "text" | "effect" | "compressor" | "lut"> & {
   text?: Partial<TextOptions>;
@@ -104,9 +105,8 @@ function findAvailableTrack(
 
 function createLayer(project: Project, kind: TrackKind): Track {
   const count = project.tracks.filter((track) => track.kind === kind).length + 1;
-  const label = kind === "video" ? "Video" : kind === "audio" ? "Audio" : "Text";
-  const layerLabel = kind === "misc" ? "Misc" : label;
-  const track = createTrack(kind, `${layerLabel} ${count}`);
+  const label = kind === "video" ? t("Video") : kind === "audio" ? t("Audio") : kind === "text" ? t("Text") : t("Misc");
+  const track = createTrack(kind, `${label} ${count}`);
   let insertAt = project.tracks.length;
   for (let index = project.tracks.length - 1; index >= 0; index -= 1) {
     if (project.tracks[index].kind === kind) {
@@ -192,7 +192,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     set((state) => {
       if (!state.project) return {};
       return {
-        project: { ...state.project, name: name.trim() || "Untitled project", updatedAt: Date.now() },
+        project: { ...state.project, name: name.trim() || t("Untitled project"), updatedAt: Date.now() },
         dirty: true,
       };
     });
@@ -260,6 +260,12 @@ export const useEditor = create<EditorState>((set, get) => ({
       scale: 1,
       rotation: 0,
       mask: "none",
+      maskX: 0.5,
+      maskY: 0.5,
+      maskWidth: 0.6,
+      maskHeight: 0.6,
+      maskRotation: 0,
+      maskPoints: [],
       chromaKey: { enabled: false, color: "#00ff00", similarity: 0.22, softness: 0.08 },
       fadeIn: 0,
       fadeOut: 0,
@@ -352,7 +358,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       pan: 0,
       compressor: { ...DEFAULT_COMPRESSOR },
       text: {
-        text: text?.trim() || "Your text",
+        text: text?.trim() || t("Your text"),
         x: 0.5,
         y: 0.5,
         size: Math.round(state.project.height * 0.075),
@@ -394,7 +400,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         const start = Math.max(0, cue.start);
         const duration = Math.max(0.1, cue.end - start);
         track.clips.push({
-          id: newId(), kind: "text", name: cue.text.replace(/\s+/g, " ").slice(0, 40) || "Subtitle cue",
+          id: newId(), kind: "text", name: cue.text.replace(/\s+/g, " ").slice(0, 40) || t("Subtitle cue"),
           start, duration, trimIn: 0, speed: 1, speedRamp: [], volume: 1, opacity: 1, fit: "contain",
           x: 0, y: 0, scale: 1, rotation: 0, mask: "none", fadeIn: 0, fadeOut: 0, pitch: 0,
           bass: 0, treble: 0, mid: 0, bassFrequency: DEFAULT_BASS_FREQUENCY, midFrequency: DEFAULT_MID_FREQUENCY,
@@ -415,7 +421,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (!state.project) return;
     const start = Math.max(0, at ?? state.currentTime);
     const clip: Clip = {
-      id: newId(), kind: "misc", name: preset?.name ?? "Color filter", start, duration: 5, trimIn: 0,
+      id: newId(), kind: "misc", name: preset?.name ?? t("Color filter"), start, duration: 5, trimIn: 0,
       speed: 1, speedRamp: [], volume: 1, opacity: 1, fit: "contain", x: 0, y: 0, scale: 1,
       rotation: 0, mask: "none", fadeIn: 0, fadeOut: 0, pitch: 0, bass: 0, treble: 0,
       mid: 0, bassFrequency: DEFAULT_BASS_FREQUENCY, midFrequency: DEFAULT_MID_FREQUENCY,
@@ -727,6 +733,17 @@ export function selectedClip(state: EditorState): Clip | null {
 export function selectedTrackOfClip(state: EditorState): Track | null {
   if (!state.project || !state.selectedClipId) return null;
   return clipIndex(state.project.tracks).get(state.selectedClipId)?.track ?? null;
+}
+
+/**
+ * Looks up a clip by id.
+ *
+ * The index is cached per track list, so this stays cheap enough to call on
+ * every keyboard edit.
+ */
+export function clipById(state: EditorState, clipId: string): Clip | null {
+  if (!state.project) return null;
+  return clipIndex(state.project.tracks).get(clipId)?.clip ?? null;
 }
 
 /**

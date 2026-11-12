@@ -13,24 +13,3 @@ export function clipValue(clip: Clip, property: KeyframeProperty, localTime: num
   }
   return frames[frames.length - 1].value;
 }
-
-export function transitionState(clip: Clip, time: number, allowWipe = true) {
-  const localTime = time - clip.start;
-  let alpha = 1;
-  let wipeIn = 1;
-  let wipeOut = 1;
-  const inDuration = Math.min(clip.duration, clip.transitionIn.duration);
-  const outDuration = Math.min(clip.duration, clip.transitionOut.duration);
-  if (clip.transitionIn.type !== "none" && inDuration > 0 && localTime < inDuration) {
-    const progress = Math.max(0, Math.min(1, localTime / inDuration));
-    if (clip.transitionIn.type === "fade" || !allowWipe) alpha *= progress;
-    else wipeIn = progress;
-  }
-  const remaining = clip.duration - localTime;
-  if (clip.transitionOut.type !== "none" && outDuration > 0 && remaining < outDuration) {
-    const progress = Math.max(0, Math.min(1, remaining / outDuration));
-    if (clip.transitionOut.type === "fade" || !allowWipe) alpha *= progress;
-    else wipeOut = progress;
-  }
-  return { alpha, wipeIn, wipeOut };
-}

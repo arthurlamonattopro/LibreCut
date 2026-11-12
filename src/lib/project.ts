@@ -31,6 +31,14 @@ export function normalizeProject(project: Project): Project {
       clip.scale ??= 1;
       clip.rotation ??= 0;
       clip.mask ??= "none";
+      clip.maskX ??= 0.5;
+      clip.maskY ??= 0.5;
+      // Older circle masks covered the whole frame; keep them looking the same
+      // while new masks start a little smaller.
+      if (clip.maskWidth === undefined) clip.maskWidth = clip.mask === "circle" ? 1 : 0.6;
+      if (clip.maskHeight === undefined) clip.maskHeight = clip.mask === "circle" ? 1 : 0.6;
+      clip.maskRotation ??= 0;
+      if (!Array.isArray(clip.maskPoints)) clip.maskPoints = [];
       clip.fadeIn ??= 0;
       clip.fadeOut ??= 0;
       clip.pitch ??= 0;
@@ -47,6 +55,10 @@ export function normalizeProject(project: Project): Project {
       clip.keyframes ??= [];
       clip.transitionIn ??= { type: "none", duration: 0.5 };
       clip.transitionOut ??= { type: "none", duration: 0.5 };
+      // Older projects used a single wipe name; the catalogue now names every
+      // direction separately.
+      if (clip.transitionIn.type === "wipe") clip.transitionIn.type = "wiperight";
+      if (clip.transitionOut.type === "wipe") clip.transitionOut.type = "wiperight";
       if (clip.kind === "misc") {
         clip.effect ??= {
           brightness: 0,

@@ -15,6 +15,7 @@ a promise. Priorities can change based on community feedback.
 - [x] Canvas preview with layered compositing
 - [x] Text clips with typography controls
 - [x] Video and audio controls, masks, chroma key, transitions, and keyframes
+- [x] Every transition FFmpeg's `xfade` filter supports, previewed on the canvas and rendered on export
 - [x] Resizable media, preview, inspector, and timeline panels
 - [x] Effect library with searchable presets, color controls, blur, vignette, fades, and motion blur
 - [x] Local AI captions and speech generation with first-use model downloads and caching
@@ -123,18 +124,18 @@ based on preview feedback; this is a target, not a release-date commitment.
   - [x] Profile memory, decode, timeline interaction, and project-save behavior ([diagnostics](docs/performance.md#profiling-procedure))
   - [x] Avoid blocking the editor during imports, proxy work, and other long tasks
 - [ ] Accessibility and interaction quality
-  - [ ] Audit keyboard navigation, focus order, labels, contrast, and screen-reader output
-  - [ ] Make core import, timeline edit, inspector, and export flows usable without a mouse
-  - [ ] Add accessible names and announcements for progress, errors, and dialogs
+  - [x] Audit keyboard navigation, focus order, labels, contrast, and screen-reader output ([audit](docs/accessibility.md))
+  - [x] Make core import, timeline edit, inspector, and export flows usable without a mouse
+  - [x] Add accessible names and announcements for progress, errors, and dialogs
 - [ ] Signed installers and reproducible release builds
   - [ ] Sign and notarize macOS builds and verify Gatekeeper behavior
   - [ ] Define supported Linux package environments and validate clean installs
   - [ ] Document release inputs, dependency versions, checksums, and artifact provenance
   - [ ] Keep update signing keys and release credentials out of the repository
-- [ ] Localization framework for the editor UI
-  - [ ] Extract interface strings and support locale-aware dates, numbers, and shortcuts
-  - [ ] Ship reviewed translations for English, Spanish, Portuguese, and French
-  - [ ] Keep AI language availability distinct from interface translation coverage
+- [x] Localization framework for the editor UI
+  - [x] Extract interface strings and support locale-aware dates, numbers, and shortcuts
+  - [x] Ship reviewed interface translations for English, Spanish, and Brazilian Portuguese
+  - [x] Keep AI language availability distinct from interface translation coverage
 - [ ] Documentation and community ecosystem
   - [ ] Publish beginner tutorials for import, editing, audio, titles, and export
   - [ ] Document supported formats, platform requirements, known limitations, and recovery

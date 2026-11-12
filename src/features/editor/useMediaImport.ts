@@ -13,6 +13,7 @@ import {
 import type { Asset, MediaProgress } from "../../lib/types";
 import { toast } from "../../components/Toast";
 import { logSlowOperation } from "../../lib/performance";
+import { t } from "../../lib/i18n";
 
 const SUPPORTED = new Set([
   "mp4", "m4v", "mov", "webm", "mkv", "avi",
@@ -64,7 +65,10 @@ export function useMediaImport() {
       replaceAsset(asset.id, { proxyId: proxy.id, previewMediaId: proxy.id, proxyStatus: "ready" });
     }).catch((error) => {
       replaceAsset(asset.id, { proxyStatus: "failed" });
-      toast(`Proxy failed for ${asset.name}. Retry or continue with the original source. ${error instanceof Error ? error.message : String(error)}`, "error");
+      toast(t("Proxy failed for {name}. Retry or continue with the original source. {message}", {
+        name: asset.name,
+        message: error instanceof Error ? error.message : String(error),
+      }), "error");
     });
   }, [replaceAsset]);
 
@@ -84,11 +88,18 @@ export function useMediaImport() {
           return true;
         });
       if (usable.length === 0) {
-        if (unsupported.length) toast(`Unsupported format${unsupported.length > 1 ? "s" : ""}: ${unsupported.map((path) => path.split(/[\\/]/).pop()).slice(0, 3).join(", ")}. Supported: MP4, MOV, WebM, MKV, AVI, common audio, and image files. Import subtitles from the Text tab.`, "error");
+        if (unsupported.length) toast(t(
+          unsupported.length > 1
+            ? "Unsupported formats: {files}. Supported: MP4, MOV, WebM, MKV, AVI, common audio, and image files. Import subtitles from the Text tab."
+            : "Unsupported format: {files}. Supported: MP4, MOV, WebM, MKV, AVI, common audio, and image files. Import subtitles from the Text tab.",
+          { files: unsupported.map((path) => path.split(/[\\/]/).pop()).slice(0, 3).join(", ") },
+        ), "error");
         return;
       }
       setImporting((value) => value + usable.length);
-      if (unsupported.length) toast(`Skipped unsupported files: ${unsupported.map((path) => path.split(/[\\/]/).pop()).slice(0, 3).join(", ")}. Subtitle files can be imported from the Text tab.`, "info");
+      if (unsupported.length) toast(t("Skipped unsupported files: {files}. Subtitle files can be imported from the Text tab.", {
+        files: unsupported.map((path) => path.split(/[\\/]/).pop()).slice(0, 3).join(", "),
+      }), "info");
       let nextPath = 0;
       await Promise.all(Array.from({ length: Math.min(3, usable.length) }, async () => {
         while (nextPath < usable.length) {
@@ -118,7 +129,7 @@ export function useMediaImport() {
             importedAt: Date.now(),
           };
           addAsset(asset);
-          toast(`Imported ${info.name}`, "success");
+          toast(t("Imported {name}", { name: info.name }), "success");
 
           const analysisStarted = performance.now();
           const [thumbnails, waveform] = await Promise.all([
@@ -143,12 +154,13 @@ export function useMediaImport() {
         } catch (error) {
           const details = error instanceof Error ? error.message : String(error);
           const diagnosis = /probe|decode|invalid data|moov atom|corrupt|stream/i.test(details)
-            ? " The file may be damaged or use a codec this FFmpeg build cannot read. Try remuxing or transcoding it to H.264 MP4."
-            : " Check that the file exists and is readable.";
+            ? t("The file may be damaged or use a codec this FFmpeg build cannot read. Try remuxing or transcoding it to H.264 MP4.")
+            : t("Check that the file exists and is readable.");
           toast(
-            `Could not import ${path.split(/[\\/]/).pop() ?? "file"}: ${
-              details
-            }${diagnosis}`,
+            `${t("Could not import {name}: {message}", {
+              name: path.split(/[\\/]/).pop() ?? t("file"),
+              message: details,
+            })} ${diagnosis}`,
             "error",
           );
         } finally {

@@ -1,8 +1,81 @@
 export type TrackKind = "video" | "audio" | "text" | "misc";
 export type FitMode = "contain" | "cover";
-export type ClipMask = "none" | "circle";
+export type ClipMask = "none" | "circle" | "square" | "rectangle" | "custom";
+
+/** A point of a custom mask, in canvas coordinates normalized to 0..1. */
+export interface MaskPoint {
+  x: number;
+  y: number;
+}
 export type KeyframeProperty = "x" | "y" | "scale" | "rotation" | "opacity" | "volume";
-export type TransitionType = "none" | "fade" | "wipe";
+/**
+ * Every transition the editor can render.
+ *
+ * The names match FFmpeg's `xfade` filter, so the exporter hands them to
+ * FFmpeg unchanged. `wipe` is the name older projects used; it still loads and
+ * behaves like a left-to-right wipe.
+ */
+export type TransitionType =
+  | "none"
+  | "fade"
+  | "fadefast"
+  | "fadeslow"
+  | "fadeblack"
+  | "fadewhite"
+  | "fadegrays"
+  | "dissolve"
+  | "wipeleft"
+  | "wiperight"
+  | "wipeup"
+  | "wipedown"
+  | "smoothleft"
+  | "smoothright"
+  | "smoothup"
+  | "smoothdown"
+  | "wipetl"
+  | "wipetr"
+  | "wipebl"
+  | "wipebr"
+  | "diagtl"
+  | "diagtr"
+  | "diagbl"
+  | "diagbr"
+  | "slideleft"
+  | "slideright"
+  | "slideup"
+  | "slidedown"
+  | "coverleft"
+  | "coverright"
+  | "coverup"
+  | "coverdown"
+  | "revealleft"
+  | "revealright"
+  | "revealup"
+  | "revealdown"
+  | "circleopen"
+  | "circleclose"
+  | "circlecrop"
+  | "rectcrop"
+  | "vertopen"
+  | "vertclose"
+  | "horzopen"
+  | "horzclose"
+  | "hlslice"
+  | "hrslice"
+  | "vuslice"
+  | "vdslice"
+  | "hlwind"
+  | "hrwind"
+  | "vuwind"
+  | "vdwind"
+  | "pixelize"
+  | "hblur"
+  | "radial"
+  | "distance"
+  | "zoomin"
+  | "squeezeh"
+  | "squeezev"
+  | "wipe";
 
 export interface Keyframe {
   property: KeyframeProperty;
@@ -173,6 +246,17 @@ export interface Clip {
   scale: number;
   rotation: number;
   mask: ClipMask;
+  /** Mask center on the canvas, as a fraction of the canvas size. */
+  maskX?: number;
+  maskY?: number;
+  /** Mask size as a fraction of the canvas' shorter side. */
+  maskWidth?: number;
+  /** Rectangle height as a fraction of the canvas' shorter side. */
+  maskHeight?: number;
+  /** Mask rotation around its center, in degrees. */
+  maskRotation?: number;
+  /** Polygon points for a custom mask, normalized to the canvas. */
+  maskPoints?: MaskPoint[];
   chromaKey?: ChromaKeyOptions;
   fadeIn: number;
   fadeOut: number;
@@ -244,6 +328,8 @@ export interface ProjectSummary {
 
 export interface ExportClipRequest {
   path: string;
+  /** The track the clip belongs to, used to find neighbouring clips. */
+  trackId?: string;
   start: number;
   duration: number;
   trimIn: number;
@@ -260,6 +346,12 @@ export interface ExportClipRequest {
   scale: number;
   rotation: number;
   mask: ClipMask;
+  maskX: number;
+  maskY: number;
+  maskWidth: number;
+  maskHeight: number;
+  maskRotation: number;
+  maskPoints: MaskPoint[];
   chromaKey?: ChromaKeyOptions;
   fadeIn: number;
   fadeOut: number;

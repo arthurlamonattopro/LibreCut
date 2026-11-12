@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import {
   LayoutGrid,
   Maximize2,
@@ -11,12 +12,20 @@ import {
 import { assetForClip, useEditor } from "../../stores/editor";
 import { mediaUrl } from "../../lib/media";
 import { formatClock, projectDuration } from "../../lib/time";
-import { clipValue, transitionState } from "../../lib/animation";
+import { clipValue } from "../../lib/animation";
+import { renderTransition } from "../../lib/transitionPreview";
+import {
+  clipTransitionPlan,
+  transitionAlpha,
+  transitionProgress,
+  type ClipTransitionPlan,
+} from "../../lib/transitions";
 import { sourceOffsetAt, speedAt } from "../../lib/speed";
 import { duckGainAt, midFilterQ, projectDuckingSegments } from "../../lib/audio";
 import { recordMetric } from "../../lib/metrics";
+import { useT } from "../../lib/i18n";
 import { activeClips, buildTimelineIndex, type TimelineIndex } from "../../lib/timelineIndex";
-import type { ChromaKeyOptions, DuckSegment, LutSettings, Project } from "../../lib/types";
+import type { ChromaKeyOptions, Clip, DuckSegment, LutSettings, MaskPoint, Project } from "../../lib/types";
 
 type PoolEntry = {
   kind: "video" | "audio" | "image";
@@ -153,14 +162,103 @@ function keyedFrame(source: CanvasImageSource, sourceWidth: number, sourceHeight
   }
 }
 
+/**
+ * Applies a clip mask in the clip's local frame.
+ *
+ * The mask travels with the clip: the caller applies the clip transform first,
+ * so position and size are measured against the clip frame. The exporter uses
+ * the same frame ordering.
+ */
+function applyClipMask(
+  target: CanvasRenderingContext2D,
+  clip: Clip,
+  width: number,
+  height: number,
+) {
+  const mask = clip.mask;
+  if (!mask || mask === "none") return;
+  const minSide = Math.min(width, height);
+
+  if (mask === "custom") {
+    const points = clip.maskPoints ?? [];
+    if (points.length < 3) return;
+    target.beginPath();
+    points.forEach((point, index) => {
+      const x = (point.x - 0.5) * width;
+      const y = (point.y - 0.5) * height;
+      if (index === 0) target.moveTo(x, y);
+      else target.lineTo(x, y);
+    });
+    target.closePath();
+    target.clip();
+    return;
+  }
+
+  const maskWidth = Math.max(1, (clip.maskWidth ?? 0.6) * minSide);
+  const maskHeight = mask === "rectangle"
+    ? Math.max(1, (clip.maskHeight ?? 0.6) * minSide)
+    : maskWidth;
+  const centerX = ((clip.maskX ?? 0.5) - 0.5) * width;
+  const centerY = ((clip.maskY ?? 0.5) - 0.5) * height;
+
+  const matrix = target.getTransform();
+  target.translate(centerX, centerY);
+  const rotation = ((clip.maskRotation ?? 0) * Math.PI) / 180;
+  if (rotation) target.rotate(rotation);
+  target.beginPath();
+  if (mask === "circle") {
+    target.arc(0, 0, maskWidth / 2, 0, Math.PI * 2);
+  } else {
+    target.rect(-maskWidth / 2, -maskHeight / 2, maskWidth, maskHeight);
+  }
+  target.clip();
+  target.setTransform(matrix);
+}
+
+/**
+ * Keeps a freehand mask to a workable vertex count.
+ *
+ * Affine points are sampled evenly, which is enough for a clip mask and keeps
+ * the export expression short.
+ */
+function simplifyMaskPoints(points: MaskPoint[], max = 32): MaskPoint[] {
+  if (points.length <= max) return points;
+  return Array.from({ length: max }, (_, index) =>
+    points[Math.round((index * (points.length - 1)) / (max - 1))],
+  );
+}
+
+/**
+ * The transition plan of a clip: which transition plays into it, which plays
+ * out of it, and whether its own edges fade it in or out.
+ */
+function transitionPlanOf(index: TimelineIndex | null, clip: Clip): ClipTransitionPlan {
+  if (!index) return clipTransitionPlan(clip, null, null);
+  const location = index.clipLocations.get(clip.id);
+  if (!location) return clipTransitionPlan(clip, null, null);
+  const { track, index: position } = location;
+  return clipTransitionPlan(
+    clip,
+    track.transitions[position] ?? null,
+    track.transitions[position + 1] ?? null,
+  );
+}
+
 export function Preview() {
+  const t = useT();
   const project = useEditor((state) => state.project);
   const currentTime = useEditor((state) => state.currentTime);
   const playing = useEditor((state) => state.playing);
   const setPlaying = useEditor((state) => state.setPlaying);
   const setCurrentTime = useEditor((state) => state.setCurrentTime);
+  const selectedClipId = useEditor((state) => state.selectedClipId);
+  const updateClip = useEditor((state) => state.updateClip);
 
   const [showGuides, setShowGuides] = useState(false);
+  const [draftMaskPoints, setDraftMaskPoints] = useState<MaskPoint[]>([]);
+  const [canvasBox, setCanvasBox] = useState({ left: 0, top: 0, width: 0, height: 0 });
+  const drawingMaskRef = useRef(false);
+  const maskPointsRef = useRef<MaskPoint[]>([]);
   const guidesRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const effectCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -184,6 +282,134 @@ export function Preview() {
 
   const duration = project ? projectDuration(project.tracks, 0) : 0;
   const fps = project?.fps ?? 30;
+  const selectedClip = project && selectedClipId
+    ? project.tracks.flatMap((track) => track.clips).find((clip) => clip.id === selectedClipId)
+    : undefined;
+  const drawingCustomMask = Boolean(
+    selectedClip && selectedClip.kind === "video" && selectedClip.mask === "custom",
+  );
+
+  useEffect(() => {
+    if (!drawingCustomMask) return;
+    const updateBox = () => {
+      const canvas = canvasRef.current;
+      const stage = stageRef.current;
+      if (!canvas || !stage) return;
+      const canvasRect = canvas.getBoundingClientRect();
+      const stageRect = stage.getBoundingClientRect();
+      const next = {
+        left: canvasRect.left - stageRect.left,
+        top: canvasRect.top - stageRect.top,
+        width: canvasRect.width,
+        height: canvasRect.height,
+      };
+      setCanvasBox((previous) =>
+        previous.left === next.left && previous.top === next.top
+          && previous.width === next.width && previous.height === next.height
+          ? previous
+          : next,
+      );
+    };
+    updateBox();
+    const observer = new ResizeObserver(updateBox);
+    if (stageRef.current) observer.observe(stageRef.current);
+    if (canvasRef.current) observer.observe(canvasRef.current);
+    window.addEventListener("resize", updateBox);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateBox);
+    };
+  }, [drawingCustomMask, project?.width, project?.height]);
+
+  const maskFrame = () => {
+    if (!selectedClip || !project) return null;
+    const localTime = Math.max(0, Math.min(selectedClip.duration, currentTime - selectedClip.start));
+    const rotation = (clipValue(selectedClip, "rotation", localTime) * Math.PI) / 180;
+    return {
+      x: clipValue(selectedClip, "x", localTime),
+      y: clipValue(selectedClip, "y", localTime),
+      scale: Math.max(0.001, clipValue(selectedClip, "scale", localTime)),
+      cos: Math.cos(rotation),
+      sin: Math.sin(rotation),
+    };
+  };
+
+  const maskPointFromEvent = (event: ReactPointerEvent<SVGSVGElement>): MaskPoint | null => {
+    const canvas = canvasRef.current;
+    const activeProject = projectRef.current;
+    const frame = maskFrame();
+    if (!canvas || !activeProject || !frame) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    // Undo the clip transform to store the point in the clip-local frame.
+    const offsetX = event.clientX - rect.left - rect.width * (0.5 + frame.x);
+    const offsetY = event.clientY - rect.top - rect.height * (0.5 + frame.y);
+    const projectX = offsetX * (activeProject.width / rect.width);
+    const projectY = offsetY * (activeProject.height / rect.height);
+    const localX = (projectX * frame.cos + projectY * frame.sin) / frame.scale;
+    const localY = (-projectX * frame.sin + projectY * frame.cos) / frame.scale;
+    return {
+      x: Math.max(0, Math.min(1, localX / activeProject.width + 0.5)),
+      y: Math.max(0, Math.min(1, localY / activeProject.height + 0.5)),
+    };
+  };
+
+  /** Maps clip-local mask points to pixels on the displayed canvas. */
+  const maskOverlayPoints = (points: MaskPoint[]): string => {
+    const activeProject = projectRef.current;
+    const frame = maskFrame();
+    if (!activeProject || !frame || !canvasBox.width || !canvasBox.height) return "";
+    const centerX = canvasBox.width * (0.5 + frame.x);
+    const centerY = canvasBox.height * (0.5 + frame.y);
+    return points.map((point) => {
+      const localX = (point.x - 0.5) * activeProject.width * frame.scale;
+      const localY = (point.y - 0.5) * activeProject.height * frame.scale;
+      const rotatedX = localX * frame.cos - localY * frame.sin;
+      const rotatedY = localX * frame.sin + localY * frame.cos;
+      const x = centerX + rotatedX * (canvasBox.width / activeProject.width);
+      const y = centerY + rotatedY * (canvasBox.height / activeProject.height);
+      return `${x},${y}`;
+    }).join(" ");
+  };
+
+  const startMaskDrawing = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (!drawingCustomMask || !selectedClip) return;
+    const point = maskPointFromEvent(event);
+    if (!point) return;
+    event.preventDefault();
+    drawingMaskRef.current = true;
+    maskPointsRef.current = [point];
+    setDraftMaskPoints([point]);
+    setPlaying(false);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const extendMaskDrawing = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (!drawingMaskRef.current) return;
+    const point = maskPointFromEvent(event);
+    if (!point) return;
+    const points = maskPointsRef.current;
+    const last = points[points.length - 1];
+    if (!last || Math.hypot(point.x - last.x, point.y - last.y) >= 0.004) {
+      points.push(point);
+      setDraftMaskPoints(points.slice());
+    }
+  };
+
+  const finishMaskDrawing = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (!drawingMaskRef.current) return;
+    drawingMaskRef.current = false;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    const points = simplifyMaskPoints(maskPointsRef.current);
+    maskPointsRef.current = [];
+    setDraftMaskPoints([]);
+    if (selectedClip && points.length >= 3) {
+      updateClip(selectedClip.id, { maskPoints: points });
+    }
+  };
+
   const syncPool = (time: number) => {
     const activeProject = projectRef.current;
     const container = hiddenRef.current;
@@ -375,6 +601,38 @@ export function Preview() {
       const media = entry.el as HTMLMediaElement;
       if (!media.paused) media.pause();
     }
+
+    // A clip that hands over to a clip with a transition is held on its last
+    // frame while the transition runs, so the cut can blend the two clips.
+    for (const { clip } of activeClips(index, time)) {
+      const location = index.clipLocations.get(clip.id);
+      if (!location) continue;
+      const transition = location.track.transitions[location.index];
+      if (!transition) continue;
+      const previous = location.track.previous[location.index];
+      if (!previous) continue;
+      const previousEntry = poolRef.current.get(previous.id);
+      if (!previousEntry || previousEntry.kind === "image") continue;
+      const media = previousEntry.el as HTMLMediaElement;
+      const rampSpeed = previous.speedRamp?.length
+        ? speedAt(previous.speedRamp, previous.duration, previous.duration)
+        : previous.speed;
+      const target = Math.max(
+        0,
+        previous.trimIn +
+          (previous.speedRamp?.length
+            ? sourceOffsetAt(previous.speedRamp, previous.duration, previous.duration)
+            : previous.duration * rampSpeed),
+      );
+      if (Math.abs(media.currentTime - target) > 0.04) {
+        try {
+          media.currentTime = target;
+        } catch {
+          // Seeking can fail while metadata is still loading.
+        }
+      }
+      if (!media.paused) media.pause();
+    }
   };
 
   const applyGains = (time: number) => {
@@ -403,11 +661,15 @@ export function Preview() {
       const local = time - clip.start;
       const fadeIn = clip.fadeIn > 0 ? Math.min(1, local / clip.fadeIn) : 1;
       const fadeOut = clip.fadeOut > 0 ? Math.min(1, (clip.duration - local) / clip.fadeOut) : 1;
-      const transitions = transitionState(clip, time, false);
+      const plan = transitionPlanOf(index, clip);
+      // A clip that takes over fades its audio in while the transition runs.
+      const transitions = plan.incoming && time < clip.start + plan.incoming.duration
+        ? transitionProgress(plan.incoming, time)
+        : transitionAlpha(clip, time, plan);
       const volume = clipValue(clip, "volume", local);
       const duck = ducking ? duckGainAt(ducking, time) : 1;
       const target = isActive
-        ? Math.min(4, Math.max(0, volume)) * Math.min(fadeIn, fadeOut) * transitions.alpha * trackVolume * duck * (track.muted ? 0 : 1)
+        ? Math.min(4, Math.max(0, volume)) * Math.min(fadeIn, fadeOut) * transitions * trackVolume * duck * (track.muted ? 0 : 1)
         : 0;
       if (entry.bass) {
         entry.bass.gain.value = clip.bass;
@@ -434,6 +696,57 @@ export function Preview() {
       }
       entry.gain.gain.value = target;
     }
+  };
+
+  /**
+   * Draws one clip onto a context.
+   *
+   * The same helper paints the clip that is going away and the clip that
+   * comes in, which is what a transition blends.
+   */
+  const drawClipLayer = (
+    target: CanvasRenderingContext2D,
+    targetClip: Clip,
+    targetEntry: PoolEntry,
+    localTime: number,
+    alpha: number,
+  ) => {
+    const activeProject = projectRef.current;
+    if (!activeProject) return;
+    const source = targetEntry.el;
+    const isImage = targetEntry.kind === "image";
+    if (isImage) {
+      const image = source as HTMLImageElement;
+      if (!image.complete) return;
+    } else {
+      const video = source as HTMLVideoElement;
+      if (video.seeking || video.readyState < 2) return;
+    }
+    target.save();
+    target.translate(
+      activeProject.width * (0.5 + clipValue(targetClip, "x", localTime)),
+      activeProject.height * (0.5 + clipValue(targetClip, "y", localTime)),
+    );
+    target.rotate((clipValue(targetClip, "rotation", localTime) * Math.PI) / 180);
+    const clipScale = clipValue(targetClip, "scale", localTime);
+    target.scale(clipScale, clipScale);
+    applyClipMask(target, targetClip, activeProject.width, activeProject.height);
+    target.globalAlpha = clipValue(targetClip, "opacity", localTime) * alpha;
+    const chroma = targetClip.chromaKey;
+    if (isImage) {
+      const image = source as HTMLImageElement;
+      const keyed = chroma?.enabled
+        ? keyedFrame(image, image.naturalWidth, image.naturalHeight, chroma, chromaCanvasRef.current ?? (chromaCanvasRef.current = document.createElement("canvas")))
+        : image;
+      drawFitted(target, keyed, image.naturalWidth, image.naturalHeight, activeProject.width, activeProject.height, targetClip.fit);
+    } else {
+      const video = source as HTMLVideoElement;
+      const keyed = chroma?.enabled
+        ? keyedFrame(video, video.videoWidth, video.videoHeight, chroma, chromaCanvasRef.current ?? (chromaCanvasRef.current = document.createElement("canvas")))
+        : video;
+      drawFitted(target, keyed, video.videoWidth, video.videoHeight, activeProject.width, activeProject.height, targetClip.fit);
+    }
+    target.restore();
   };
 
   const drawFrame = (time: number) => {
@@ -464,33 +777,29 @@ export function Preview() {
       {
         const entry = poolRef.current.get(clip.id);
         if (!entry) continue;
+        const plan = transitionPlanOf(index, clip);
+        const transition = plan.incoming;
+        if (transition && time < clip.start + transition.duration) {
+          // The cut is running: the clip in front is held on its last frame
+          // while this one moves in.
+          const location = index?.clipLocations.get(clip.id);
+          const previous = location?.track.previous[location.index] ?? null;
+          const previousEntry = previous ? poolRef.current.get(previous.id) : undefined;
+          if (previous && previousEntry) {
+            renderTransition(ctx, transition.type, transitionProgress(transition, time), {
+              width,
+              height,
+              scale,
+              outgoing: (target) => drawClipLayer(target, previous, previousEntry, previous.duration, 1),
+              incoming: (target) => drawClipLayer(target, clip, entry, time - clip.start, 1),
+            });
+            continue;
+          }
+        }
         if (entry.kind === "image") {
           const image = entry.el as HTMLImageElement;
           if (!image.complete) continue;
-          ctx.save();
-          const transition = transitionState(clip, time);
-          if (transition.wipeIn < 1) { ctx.beginPath(); ctx.rect(0, 0, activeProject.width * transition.wipeIn, activeProject.height); ctx.clip(); }
-          if (transition.wipeOut < 1) { ctx.beginPath(); ctx.rect(activeProject.width * (1 - transition.wipeOut), 0, activeProject.width * transition.wipeOut, activeProject.height); ctx.clip(); }
-          ctx.translate(activeProject.width * (0.5 + clipValue(clip, "x", time - clip.start)), activeProject.height * (0.5 + clipValue(clip, "y", time - clip.start)));
-          ctx.rotate((clipValue(clip, "rotation", time - clip.start) * Math.PI) / 180);
-          ctx.scale(clipValue(clip, "scale", time - clip.start), clipValue(clip, "scale", time - clip.start));
-          if (clip.mask === "circle") {
-            ctx.beginPath();
-            ctx.arc(0, 0, Math.min(activeProject.width, activeProject.height) / 2, 0, Math.PI * 2);
-            ctx.clip();
-          }
-          ctx.globalAlpha = clipValue(clip, "opacity", time - clip.start) * transition.alpha;
-          const keyed = clip.chromaKey?.enabled ? keyedFrame(image, image.naturalWidth, image.naturalHeight, clip.chromaKey, chromaCanvasRef.current ?? (chromaCanvasRef.current = document.createElement("canvas"))) : image;
-          drawFitted(
-            ctx,
-            keyed,
-            image.naturalWidth,
-            image.naturalHeight,
-            activeProject.width,
-            activeProject.height,
-            clip.fit,
-          );
-          ctx.restore();
+          drawClipLayer(ctx, clip, entry, time - clip.start, transitionAlpha(clip, time, plan));
         } else {
           const video = entry.el as HTMLVideoElement;
           if (video.seeking || video.readyState < 2) {
@@ -502,30 +811,7 @@ export function Preview() {
             }
             continue;
           }
-          ctx.save();
-          const transition = transitionState(clip, time);
-          if (transition.wipeIn < 1) { ctx.beginPath(); ctx.rect(0, 0, activeProject.width * transition.wipeIn, activeProject.height); ctx.clip(); }
-          if (transition.wipeOut < 1) { ctx.beginPath(); ctx.rect(activeProject.width * (1 - transition.wipeOut), 0, activeProject.width * transition.wipeOut, activeProject.height); ctx.clip(); }
-          ctx.translate(activeProject.width * (0.5 + clipValue(clip, "x", time - clip.start)), activeProject.height * (0.5 + clipValue(clip, "y", time - clip.start)));
-          ctx.rotate((clipValue(clip, "rotation", time - clip.start) * Math.PI) / 180);
-          ctx.scale(clipValue(clip, "scale", time - clip.start), clipValue(clip, "scale", time - clip.start));
-          if (clip.mask === "circle") {
-            ctx.beginPath();
-            ctx.arc(0, 0, Math.min(activeProject.width, activeProject.height) / 2, 0, Math.PI * 2);
-            ctx.clip();
-          }
-          ctx.globalAlpha = clipValue(clip, "opacity", time - clip.start) * transition.alpha;
-          const keyed = clip.chromaKey?.enabled ? keyedFrame(video, video.videoWidth, video.videoHeight, clip.chromaKey, chromaCanvasRef.current ?? (chromaCanvasRef.current = document.createElement("canvas"))) : video;
-          drawFitted(
-            ctx,
-            keyed,
-            video.videoWidth,
-            video.videoHeight,
-            activeProject.width,
-            activeProject.height,
-            clip.fit,
-          );
-          ctx.restore();
+          drawClipLayer(ctx, clip, entry, time - clip.start, transitionAlpha(clip, time, plan));
         }
       }
     }
@@ -618,15 +904,14 @@ export function Preview() {
       if (track.hidden || track.kind !== "text" || !clip.text) continue;
       {
         const text = clip.text;
-        const transition = transitionState(clip, time, false);
+        const plan = clipTransitionPlan(clip, null, null);
+        const transition = transitionAlpha(clip, time, plan);
         const x = clipValue(clip, "x", time - clip.start, text.x) * activeProject.width;
         const y = clipValue(clip, "y", time - clip.start, text.y) * activeProject.height;
         ctx.save();
-        if (transition.wipeIn < 1) { ctx.beginPath(); ctx.rect(0, 0, activeProject.width * transition.wipeIn, activeProject.height); ctx.clip(); }
-        if (transition.wipeOut < 1) { ctx.beginPath(); ctx.rect(activeProject.width * (1 - transition.wipeOut), 0, activeProject.width * transition.wipeOut, activeProject.height); ctx.clip(); }
         ctx.translate(x, y);
         ctx.rotate((clipValue(clip, "rotation", time - clip.start, text.rotation) * Math.PI) / 180);
-        ctx.globalAlpha = clipValue(clip, "opacity", time - clip.start) * transition.alpha;
+        ctx.globalAlpha = clipValue(clip, "opacity", time - clip.start) * transition;
         const brightness = Math.max(0, Math.min(2, text.brightness));
         const brightColor = /^#[0-9a-f]{6}$/i.test(text.color)
           ? `#${[1, 3, 5].map((at) => Math.min(255, Math.round(parseInt(text.color.slice(at, at + 2), 16) * brightness)).toString(16).padStart(2, "0")).join("")}`
@@ -730,9 +1015,9 @@ export function Preview() {
       ctx.textAlign = "left";
       ctx.textBaseline = "top";
       ctx.fillStyle = "rgba(255,255,255,0.55)";
-      ctx.fillText("ACTION SAFE", projectWidth * 0.05 + line * 6, projectHeight * 0.05 + line * 5);
+      ctx.fillText(t("ACTION SAFE"), projectWidth * 0.05 + line * 6, projectHeight * 0.05 + line * 5);
       ctx.fillStyle = "rgba(84,214,222,0.75)";
-      ctx.fillText("TITLE SAFE", projectWidth * 0.1 + line * 6, projectHeight * 0.1 + line * 5);
+      ctx.fillText(t("TITLE SAFE"), projectWidth * 0.1 + line * 6, projectHeight * 0.1 + line * 5);
       ctx.restore();
     }
   };
@@ -918,25 +1203,26 @@ export function Preview() {
   };
 
   return (
-    <section className="flex min-w-0 flex-1 flex-col bg-surface">
+    <section aria-label={t("Preview")} className="flex min-w-0 flex-1 flex-col bg-surface">
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-line-soft px-4">
         <div className="flex items-center gap-2 text-[11px] text-muted">
-          <span className="font-medium text-ink">Preview</span>
+          <span className="font-medium text-ink">{t("Preview")}</span>
           <span>{project ? `${project.width}×${project.height}` : "—"}</span>
-          <span className="text-dim/50">·</span>
+          <span className="text-dim" aria-hidden="true">·</span>
           <span>{project?.fps ?? 30} fps</span>
         </div>
         <div className="flex items-center gap-1">
           <button
             className={`btn btn-ghost btn-icon btn-sm ${showGuides ? "text-accent" : ""}`}
             onClick={() => setShowGuides((value) => !value)}
-            title="Toggle title and action safe-area guides"
+            title={t("Toggle title and action safe-area guides")}
+            aria-label={t("Toggle title and action safe-area guides")}
             aria-pressed={showGuides}
           >
-            <LayoutGrid size={13} />
+            <LayoutGrid size={13} aria-hidden="true" />
           </button>
-          <button className="btn btn-ghost btn-icon btn-sm" onClick={fullscreen} title="Fullscreen preview">
-            <Maximize2 size={13} />
+          <button className="btn btn-ghost btn-icon btn-sm" onClick={fullscreen} title={t("Fullscreen preview")} aria-label={t("Fullscreen preview")}>
+            <Maximize2 size={13} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -944,22 +1230,72 @@ export function Preview() {
       <div ref={stageRef} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#09090b] p-5">
         <canvas
           ref={canvasRef}
+          role="img"
+          aria-label={t("Preview of {name} at {time}", { name: project?.name ?? t("the project"), time: formatClock(currentTime, fps) })}
           className="relative max-h-full max-w-full rounded-[2px] bg-black ring-1 ring-white/15"
           style={{
             aspectRatio: project ? `${project.width} / ${project.height}` : "16 / 9",
             width: "100%",
             objectFit: "contain",
           }}
-          onClick={togglePlay}
+          onClick={() => {
+            if (!drawingCustomMask) togglePlay();
+          }}
         />
+        {drawingCustomMask && canvasBox.width > 0 ? (
+          <svg
+            className="absolute z-10 touch-none select-none"
+            style={{
+              left: canvasBox.left,
+              top: canvasBox.top,
+              width: canvasBox.width,
+              height: canvasBox.height,
+              cursor: "crosshair",
+            }}
+            viewBox={`0 0 ${canvasBox.width} ${canvasBox.height}`}
+            preserveAspectRatio="none"
+            role="application"
+            aria-label={t("Draw the custom mask on the preview")}
+            onPointerDown={startMaskDrawing}
+            onPointerMove={extendMaskDrawing}
+            onPointerUp={finishMaskDrawing}
+            onPointerCancel={finishMaskDrawing}
+          >
+            <rect width={canvasBox.width} height={canvasBox.height} fill="transparent" />
+            {selectedClip?.maskPoints && selectedClip.maskPoints.length >= 3 ? (
+              <polygon
+                points={maskOverlayPoints(selectedClip.maskPoints)}
+                fill="rgba(167, 139, 250, 0.14)"
+                stroke="#a78bfa"
+                strokeWidth={1.5}
+                strokeDasharray="5 4"
+                vectorEffect="non-scaling-stroke"
+              />
+            ) : null}
+            {draftMaskPoints.length >= 2 ? (
+              <polygon
+                points={maskOverlayPoints(draftMaskPoints)}
+                fill="rgba(167, 139, 250, 0.18)"
+                stroke="#c4b5fd"
+                strokeWidth={2}
+                vectorEffect="non-scaling-stroke"
+              />
+            ) : null}
+          </svg>
+        ) : null}
+        {drawingCustomMask ? (
+          <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/70 px-3 py-1.5 text-[10.5px] text-white/80 ring-1 ring-white/10">
+            {t("Drag on the preview to draw the mask")}
+          </div>
+        ) : null}
         {project && project.tracks.every((track) => track.clips.length === 0) ? (
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
               <Play size={18} className="text-white/60" />
             </div>
-            <p className="text-[12px] font-medium text-white/70">Your preview is empty</p>
-            <p className="max-w-[250px] text-[11px] leading-relaxed text-white/35">
-              Import media, then add a clip to the timeline to see it here.
+            <p className="text-[12px] font-medium text-white/80">{t("Your preview is empty")}</p>
+            <p className="max-w-[250px] text-[11px] leading-relaxed text-white/60">
+              {t("Import media, then add a clip to the timeline to see it here.")}
             </p>
           </div>
         ) : null}
@@ -968,18 +1304,20 @@ export function Preview() {
 
       <div className="relative flex h-[52px] shrink-0 items-center justify-between gap-3 border-t border-line-soft bg-panel px-4">
         <div className="flex w-[180px] items-center gap-1">
-          <button className="btn btn-ghost btn-icon btn-sm" onClick={() => step(-1)} title="Previous frame">
-            <SkipBack size={14} />
+          <button className="btn btn-ghost btn-icon btn-sm" onClick={() => step(-1)} title={t("Previous frame")} aria-label={t("Previous frame")}>
+            <SkipBack size={14} aria-hidden="true" />
           </button>
           <button
             className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-surface transition hover:bg-white"
             onClick={togglePlay}
-            title={playing ? "Pause (Space)" : "Play (Space)"}
+            title={playing ? t("Pause (Space)") : t("Play (Space)")}
+            aria-label={playing ? t("Pause") : t("Play")}
+            aria-pressed={playing}
           >
-            {playing ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" className="ml-0.5" />}
+            {playing ? <Pause size={14} fill="currentColor" aria-hidden="true" /> : <Play size={14} fill="currentColor" className="ml-0.5" aria-hidden="true" />}
           </button>
-          <button className="btn btn-ghost btn-icon btn-sm" onClick={() => step(1)} title="Next frame">
-            <SkipForward size={14} />
+          <button className="btn btn-ghost btn-icon btn-sm" onClick={() => step(1)} title={t("Next frame")} aria-label={t("Next frame")}>
+            <SkipForward size={14} aria-hidden="true" />
           </button>
           <button
             className="btn btn-ghost btn-icon btn-sm"
@@ -987,15 +1325,16 @@ export function Preview() {
               setPlaying(false);
               setCurrentTime(0);
             }}
-            title="Go to start"
+            title={t("Go to start")}
+            aria-label={t("Go to the start of the timeline")}
           >
-            <Square size={12} />
+            <Square size={12} aria-hidden="true" />
           </button>
         </div>
 
         <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-2 font-mono text-[11.5px] tracking-tight">
           <span className="text-ink">{formatClock(currentTime, fps)}</span>
-          <span className="text-dim/50">/</span>
+          <span className="text-dim/70" aria-hidden="true">/</span>
           <span className="text-dim">{formatClock(duration, fps)}</span>
         </div>
 

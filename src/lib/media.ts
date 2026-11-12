@@ -12,6 +12,7 @@ import type {
   RuntimeStatus,
   StoredProjectSummary,
 } from "./types";
+import { t } from "./i18n";
 
 export interface CaptionSegment { start: number; end: number; text: string }
 export interface Transcription { text: string; segments: CaptionSegment[] }
@@ -32,7 +33,7 @@ export async function transcribeAudio(baseUrl: string, apiKey: string, model: st
   form.append("language", language);
   form.append("timestamp_granularities[]", "segment");
   const response = await fetch(`${base}/audio/transcriptions`, { method: "POST", headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {}, body: form });
-  if (!response.ok) throw new Error(`Transcription request failed (${response.status}): ${(await response.text()).slice(0, 800)}`);
+  if (!response.ok) throw new Error(t("Transcription request failed ({status}): {message}", { status: response.status, message: (await response.text()).slice(0, 800) }));
   const result = await response.json() as Transcription;
   return { text: result.text ?? "", segments: Array.isArray(result.segments) ? result.segments : [] };
 }
@@ -41,7 +42,7 @@ export async function synthesizeSpeech(baseUrl: string, apiKey: string, model: s
   const base = checkedAiEndpoint(baseUrl);
   const languageName = ({ en: "English", es: "Spanish", pt: "Portuguese", fr: "French" } as Record<string, string>)[language] ?? "English";
   const response = await fetch(`${base}/audio/speech`, { method: "POST", headers: { "Content-Type": "application/json", ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) }, body: JSON.stringify({ model, voice, input: text, response_format: "wav", instructions: `Speak in ${languageName}.` }) });
-  if (!response.ok) throw new Error(`Speech request failed (${response.status}): ${(await response.text()).slice(0, 800)}`);
+  if (!response.ok) throw new Error(t("Speech request failed ({status}): {message}", { status: response.status, message: (await response.text()).slice(0, 800) }));
   const bytes = new Uint8Array(await response.arrayBuffer());
   let binary = "";
   for (let start = 0; start < bytes.length; start += 0x8000) binary += String.fromCharCode(...bytes.subarray(start, start + 0x8000));
@@ -51,7 +52,7 @@ export async function synthesizeSpeech(baseUrl: string, apiKey: string, model: s
 function checkedAiEndpoint(value: string) {
   const url = new URL(value.trim());
   if (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname))) {
-    throw new Error("Use HTTPS for cloud providers, or localhost for a local AI server.");
+    throw new Error(t("Use HTTPS for cloud providers, or localhost for a local AI server."));
   }
   return url.toString().replace(/\/$/, "");
 }
@@ -157,15 +158,15 @@ export async function openFolder(path: string): Promise<void> {
   await openPath(path);
 }
 
-const MEDIA_FILTERS = [
-  { name: "Video and audio", extensions: ["mp4", "mov", "webm", "mkv", "avi", "m4v", "mp3", "wav", "m4a", "aac", "flac", "ogg"] },
-  { name: "Video", extensions: ["mp4", "mov", "webm", "mkv", "avi", "m4v"] },
-  { name: "Audio", extensions: ["mp3", "wav", "m4a", "aac", "flac", "ogg"] },
-  { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "bmp", "gif"] },
+const mediaFilters = () => [
+  { name: t("Video and audio"), extensions: ["mp4", "mov", "webm", "mkv", "avi", "m4v", "mp3", "wav", "m4a", "aac", "flac", "ogg"] },
+  { name: t("Video"), extensions: ["mp4", "mov", "webm", "mkv", "avi", "m4v"] },
+  { name: t("Audio"), extensions: ["mp3", "wav", "m4a", "aac", "flac", "ogg"] },
+  { name: t("Images"), extensions: ["png", "jpg", "jpeg", "webp", "bmp", "gif"] },
 ];
 
 export async function pickMediaFiles(): Promise<string[]> {
-  const result = await open({ multiple: true, directory: false, filters: MEDIA_FILTERS });
+  const result = await open({ multiple: true, directory: false, filters: mediaFilters() });
   if (!result) return [];
   return Array.isArray(result) ? result : [result];
 }
@@ -173,7 +174,7 @@ export async function pickMediaFiles(): Promise<string[]> {
 export async function pickExportPath(defaultName: string): Promise<string | null> {
   const result = await save({
     defaultPath: `${defaultName.replace(/[\\/:*?"<>|]/g, "-")}.mp4`,
-    filters: [{ name: "MP4 video", extensions: ["mp4"] }],
+    filters: [{ name: t("MP4 video"), extensions: ["mp4"] }],
   });
   return result ?? null;
 }
@@ -181,7 +182,7 @@ export async function pickExportPath(defaultName: string): Promise<string | null
 export async function pickProjectPath(defaultName: string): Promise<string | null> {
   const result = await save({
     defaultPath: `${defaultName.replace(/[\\/:*?"<>|]/g, "-")}.librecut`,
-    filters: [{ name: "LibreCut project", extensions: ["librecut"] }],
+    filters: [{ name: t("LibreCut project"), extensions: ["librecut"] }],
   });
   return result ?? null;
 }
@@ -190,7 +191,7 @@ export async function pickProjectToOpen(): Promise<string | null> {
   const result = await open({
     multiple: false,
     directory: false,
-    filters: [{ name: "LibreCut project", extensions: ["librecut"] }],
+    filters: [{ name: t("LibreCut project"), extensions: ["librecut"] }],
   });
   return typeof result === "string" ? result : null;
 }

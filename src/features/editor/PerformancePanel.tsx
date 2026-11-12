@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Activity, Download, RefreshCw, X } from "lucide-react";
 import { Modal } from "../../components/Modal";
 import { toast } from "../../components/Toast";
+import { useT } from "../../lib/i18n";
 import {
   readJsHeap,
   recordMemory,
@@ -42,6 +43,7 @@ function formatMetricValue(summary: MetricSummary): string {
  * with the machine and runtime details it was captured on.
  */
 export function PerformancePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT();
   const [summaries, setSummaries] = useState<MetricSummary[]>([]);
   const [memory, setMemory] = useState<MemoryReading>({});
   const [environment, setEnvironment] = useState("");
@@ -117,9 +119,9 @@ export function PerformancePanel({ open, onClose }: { open: boolean; onClose: ()
       const path = isTauri
         ? await writeDiagnosticsReport(name, JSON.stringify(report, null, 2))
         : await downloadReport(name, report);
-      toast(`Profile saved to ${path}`, "success");
+      toast(t("Profile saved to {path}", { path }), "success");
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not save the profile.", "error");
+      toast(error instanceof Error ? error.message : t("Could not save the profile."), "error");
     }
   };
 
@@ -127,19 +129,19 @@ export function PerformancePanel({ open, onClose }: { open: boolean; onClose: ()
     <Modal
       open={open}
       onClose={onClose}
-      title="Performance"
-      description="Live timings and memory for this session. Compare them against the targets in docs/performance.md."
+      title={t("Performance")}
+      description={t("Live timings and memory for this session. Compare them against the targets in docs/performance.md.")}
       width={720}
       footer={
         <>
           <button className="btn btn-ghost" onClick={() => { resetMetrics(); setSummaries([]); }}>
-            <RefreshCw size={13} /> Reset
+            <RefreshCw size={13} aria-hidden="true" /> {t("Reset")}
           </button>
           <button className="btn btn-secondary" onClick={() => void exportReport()}>
-            <Download size={13} /> Save profile
+            <Download size={13} aria-hidden="true" /> {t("Save profile")}
           </button>
-          <button className="btn btn-ghost btn-icon" onClick={onClose} aria-label="Close">
-            <X size={14} />
+          <button className="btn btn-ghost btn-icon" onClick={onClose} aria-label={t("Close")}>
+            <X size={14} aria-hidden="true" />
           </button>
         </>
       }
@@ -147,9 +149,9 @@ export function PerformancePanel({ open, onClose }: { open: boolean; onClose: ()
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
-            ["JS heap", formatBytes(memory.jsHeapUsedBytes)],
-            ["App memory", formatBytes(memory.appWorkingSetBytes)],
-            ["App peak", formatBytes(memory.appPeakWorkingSetBytes)],
+            [t("JS heap"), formatBytes(memory.jsHeapUsedBytes)],
+            [t("App memory"), formatBytes(memory.appWorkingSetBytes)],
+            [t("App peak"), formatBytes(memory.appPeakWorkingSetBytes)],
             ["FFmpeg", formatBytes(memory.ffmpegWorkingSetBytes)],
           ].map(([label, value]) => (
             <div key={label} className="rounded-lg border border-line-soft bg-surface-2/50 px-3 py-2.5">
@@ -161,22 +163,21 @@ export function PerformancePanel({ open, onClose }: { open: boolean; onClose: ()
 
         {summaries.length === 0 ? (
           <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-line py-8 text-center">
-            <Activity size={20} className="text-dim/60" />
-            <p className="text-[12px] font-medium text-muted">No timings recorded yet</p>
+            <Activity size={20} className="text-dim/60" aria-hidden="true" />
+            <p className="text-[12px] font-medium text-muted">{t("No timings recorded yet")}</p>
             <p className="max-w-[320px] text-[11px] leading-relaxed text-dim">
-              Move a clip on the timeline, scrub the preview, or edit the project to collect
-              interaction and seek measurements.
+              {t("Move a clip on the timeline, scrub the preview, or edit the project to collect interaction and seek measurements.")}
             </p>
           </div>
         ) : (
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-line-soft text-[9.5px] uppercase tracking-wide text-dim">
-                <th className="pb-2 font-medium">Measurement</th>
-                <th className="pb-2 text-right font-medium">Last</th>
-                <th className="pb-2 text-right font-medium">Median</th>
+                <th className="pb-2 font-medium">{t("Measurement")}</th>
+                <th className="pb-2 text-right font-medium">{t("Last")}</th>
+                <th className="pb-2 text-right font-medium">{t("Median")}</th>
                 <th className="pb-2 text-right font-medium">p95</th>
-                <th className="pb-2 text-right font-medium">Max</th>
+                <th className="pb-2 text-right font-medium">{t("Max")}</th>
               </tr>
             </thead>
             <tbody className="font-mono text-[11px]">
@@ -200,8 +201,7 @@ export function PerformancePanel({ open, onClose }: { open: boolean; onClose: ()
         )}
 
         <p className="text-[10px] leading-relaxed text-dim">
-          {environment} · samples are kept in memory only, and the profile is written to this
-          app&apos;s data folder.
+          {t("{environment} · samples are kept in memory only, and the profile is written to this app's data folder.", { environment })}
         </p>
       </div>
     </Modal>

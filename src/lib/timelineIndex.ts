@@ -1,4 +1,5 @@
 import type { Clip, Project, Track } from "./types";
+import { cutTransition, type CutTransition } from "./transitions";
 
 /**
  * A time-ordered view of the clips on one track.
@@ -24,6 +25,10 @@ export interface TrackIndex {
    * search stop as soon as no earlier clip can still be active.
    */
   prefixMaxEnd: number[];
+  /** The clip that hands over to the clip at the same position, if any. */
+  previous: (Clip | null)[];
+  /** The transition that plays into the clip at the same position, if any. */
+  transitions: (CutTransition | null)[];
 }
 
 export interface TimelineIndex {
@@ -42,6 +47,8 @@ export function buildTimelineIndex(project: Project): TimelineIndex {
     const clips = [...track.clips].sort((a, b) => a.start - b.start);
     const prefixMaxEnd: number[] = new Array(clips.length);
     const order: number[] = new Array(clips.length);
+    const previous: (Clip | null)[] = new Array(clips.length);
+    const transitions: (CutTransition | null)[] = new Array(clips.length);
     const arrayPosition = new Map(track.clips.map((clip, index) => [clip.id, index]));
     let maxEnd = 0;
     for (let index = 0; index < clips.length; index += 1) {
@@ -51,8 +58,13 @@ export function buildTimelineIndex(project: Project): TimelineIndex {
       prefixMaxEnd[index] = maxEnd;
       order[index] = arrayPosition.get(clip.id) ?? index;
       if (end > duration) duration = end;
+      // The clip in front of this one decides which transition plays on the
+      // cut between them.
+      const before = index > 0 ? clips[index - 1] : null;
+      previous[index] = before;
+      transitions[index] = cutTransition(before, clip);
     }
-    const trackIndex: TrackIndex = { track, clips, prefixMaxEnd, order };
+    const trackIndex: TrackIndex = { track, clips, prefixMaxEnd, order, previous, transitions };
     for (let index = 0; index < clips.length; index += 1) {
       clipLocations.set(clips[index].id, { track: trackIndex, index });
     }

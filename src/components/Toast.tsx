@@ -1,5 +1,6 @@
 import { CheckCircle2, CircleAlert, Info, X } from "lucide-react";
 import { create } from "zustand";
+import { useT } from "../lib/i18n";
 
 type ToastKind = "info" | "success" | "error";
 
@@ -32,6 +33,7 @@ export function toast(message: string, kind: ToastKind = "info") {
 }
 
 export function ToastViewport() {
+  const t = useT();
   const items = useToastStore((state) => state.items);
   const dismiss = useToastStore((state) => state.dismiss);
 
@@ -42,6 +44,10 @@ export function ToastViewport() {
         return (
           <div
             key={item.id}
+            // Each toast is its own live region so a failure interrupts the
+            // speech and a status update waits its turn.
+            role={item.kind === "error" ? "alert" : "status"}
+            aria-live={item.kind === "error" ? "assertive" : "polite"}
             className="pointer-events-auto flex items-start gap-3 rounded-xl border border-line bg-panel-2/95 px-3.5 py-3 shadow-xl shadow-black/40 backdrop-blur-md animate-pop-in"
           >
             <Icon
@@ -55,8 +61,8 @@ export function ToastViewport() {
               }
             />
             <p className="flex-1 text-[12.5px] leading-relaxed text-ink/90">{item.message}</p>
-            <button className="text-dim transition hover:text-ink" onClick={() => dismiss(item.id)} aria-label="Dismiss">
-              <X size={14} />
+            <button className="text-dim transition hover:text-ink" onClick={() => dismiss(item.id)} aria-label={t("Dismiss notification")}>
+              <X size={14} aria-hidden="true" />
             </button>
           </div>
         );

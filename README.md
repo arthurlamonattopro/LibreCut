@@ -31,6 +31,7 @@ Working today:
 - Speed ramps with editable speed points, in the preview and the export
 - Live canvas preview with compositing, transforms, opacity, transitions, keyframes, text, and audio effects
 - Searchable effect presets, color adjustments, masks, blur, vignette, fades, motion blur, and imported `.cube` LUTs
+- Every transition FFmpeg's `xfade` filter supports: cross fades, wipes, slides, irises, slices, and effects, previewed on the canvas and rendered with `xfade` on export
 - Text styling, animation presets, safe-area guides, and customizable transitions and keyframes
 - Audio ducking, expanded EQ, stereo panning, compression, track volume, automation curves, and per-clip fades
 - Local AI captions, speech generation, and image background removal; models can download on first use or be installed as offline bundles
@@ -39,7 +40,8 @@ Working today:
 - Built-in and custom project templates
 - H.264/AAC export with size presets, NVENC or CPU encoding, progress, and cancellation
 - Opt-in update checks and updates, with release notes
-- English UI, keyboard shortcuts, and a local-first privacy model
+- English, Spanish, and Brazilian Portuguese UI, keyboard shortcuts, and a local-first privacy model
+- Keyboard-operable editing and screen-reader announcements for progress, errors, and dialogs ([accessibility notes](docs/accessibility.md))
 
 Platform status:
 
