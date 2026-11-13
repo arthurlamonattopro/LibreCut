@@ -51,8 +51,9 @@ cd src-tauri; cargo fmt --check; cargo clippy -- -D warnings; cargo test
 - Tauri commands are the only backend boundary. Add new commands to
   `src-tauri/src/lib.rs` and wrap them in `src/lib/media.ts`.
 - Media is served through the custom `librecut://` protocol with Range support.
-- Export graphs are generated in `src-tauri/src/export.rs` and written to a
-  filter script because FFmpeg 9 removed `-filter_complex_script`.
+- Export graphs are generated in `src-tauri/src/export/` (`graph.rs`) and
+  written to a filter script because FFmpeg 9 removed
+  `-filter_complex_script`.
 - Project files are versioned with `schemaVersion`. Bump it for breaking
   changes and add a migration.
 

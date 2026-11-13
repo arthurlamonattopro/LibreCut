@@ -15,7 +15,7 @@ backend over Tauri IPC. All media work happens locally with FFmpeg.
 │ Rust backend                                                 │
 │  media.rs    probe, thumbnails, waveform, proxy, protocol    │
 │  models.rs   offline model bundles, model protocol           │
-│  export.rs   filter graph, progress, cancel, encoders        │
+│  export/    request model, filter graph, progress, encoders  │
 │  project.rs  save/load, atomic write, NVENC detection        │
 │  ffmpeg.rs   binary resolution, shared helpers               │
 └───────────────────────┬─────────────────────────────────────┘
@@ -96,6 +96,13 @@ sorted clips replaces the scan over every clip that each frame used to do.
 Preview resolution is capped at 1920 px on the long edge. Proxies keep decoding
 cheap for 4K sources and codecs WebView2 struggles with.
 
+The editor components are split by role. `Preview.tsx` owns playback, media
+pooling, and compositing; the pure canvas helpers live in
+`src/lib/previewCanvas.ts`, and the stage and transport UI live in `preview/`.
+`Timeline.tsx` owns scrolling, drag/trim gestures, and keyboard navigation;
+constants and geometry live in `timeline/geometry.ts`, with the toolbar, track
+header, clip, and context menu in `timeline/`.
+
 ## Export pipeline
 
 Export uses an **overlay-by-timestamp** graph rather than flattening the timeline
@@ -123,6 +130,12 @@ Why:
 - Ducking is a volume envelope on the project timeline, applied after `adelay`
   so the expression can address absolute time. The renderer computes the same
   envelope, so preview and export agree.
+
+The Rust side is split by responsibility: `export.rs` holds the Tauri state and
+commands, `export/model.rs` the request types, `export/filters.rs` the filter
+expressions, `export/transitions.rs` cut planning, `export/graph.rs` graph
+assembly, `export/encoder.rs` encoder/quality mapping, and `export/render.rs`
+the FFmpeg process, progress parsing, and final file swap.
 
 Because FFmpeg 9 removed `-filter_complex_script`, the graph is passed with
 `-/filter_complex <file>`. Writing it to a file avoids Windows command-line
@@ -194,9 +207,13 @@ gestures (drag, slider) record once on gesture start to keep history readable.
 
 ## Interface localization
 
-`src/lib/i18n.ts` owns the interface locales (`en`, `es`, `pt-BR`). English
-source copy is the message key, so a missing translation falls back to readable
-English rather than an identifier. Components re-render on language changes
+`src/lib/i18n.ts` owns the interface locales (`en`, `es`, `pt-BR`). Translated
+copy lives in flat JSON catalogs under `src/locales/` (`es.json`,
+`pt-BR.json`), keyed by the English source string. English has no catalog: a
+missing translation falls back to readable English rather than an identifier,
+so adding a key needs no edit outside the component that uses it. Keep catalogs
+in sync; `tests/i18n.test.ts` fails when one locale has keys the other lacks.
+Components re-render on language changes
 through `useT()`; non-React code (toasts, error handlers, announcements) calls
 `t()`. Named placeholders such as `{name}` are interpolated by both. The chosen
 locale persists in local storage, is detected from the OS on first run, and is
