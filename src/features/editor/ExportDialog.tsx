@@ -27,12 +27,9 @@ import {
 } from "../../lib/media";
 import { cachedProjectDuration, formatClock, formatDuration } from "../../lib/time";
 import { useT } from "../../lib/i18n";
-import { projectDuckingSegments } from "../../lib/audio";
+import { buildExportRequest } from "../../lib/exportRequest";
 import type {
-  ExportClipRequest,
-  ExportEffectRequest,
   ExportProgress,
-  ExportRequest,
   ExportResult,
   Project,
   RuntimeStatus,
@@ -105,169 +102,6 @@ function defaultPreset(project: Project): Preset {
   if (project.height > project.width) return "tiktok";
   if (project.height === project.width) return "square";
   return "source";
-}
-
-function buildRequest(
-  project: Project,
-  output: string,
-  width: number,
-  height: number,
-  encoder: "libx264" | "nvenc",
-): ExportRequest {
-  const clips: ExportClipRequest[] = [];
-  const ducking = projectDuckingSegments(project);
-  for (const track of project.tracks) {
-    if (track.hidden || track.kind === "text") continue;
-    const trackVolume = track.volume ?? 1;
-    const duckSegments = ducking.get(track.id) ?? [];
-    for (const clip of track.clips) {
-      const asset = clip.assetId ? project.assets.find((item) => item.id === clip.assetId) : undefined;
-      if (!asset) continue;
-
-      if (track.kind === "video" && (asset.info.hasVideo || asset.info.isImage)) {
-        clips.push({
-          path: asset.path,
-          trackId: track.id,
-          start: clip.start,
-          duration: clip.duration,
-          trimIn: clip.trimIn,
-          speed: clip.speed,
-          speedRamp: clip.speedRamp ?? [],
-          volume: clip.volume * trackVolume,
-          opacity: clip.opacity,
-          hasAudio: asset.info.hasAudio && !track.muted,
-          hasVideo: true,
-          isImage: asset.info.isImage,
-          fit: clip.fit,
-          x: clip.x,
-          y: clip.y,
-          scale: clip.scale,
-          rotation: clip.rotation,
-          mask: clip.mask,
-          maskX: clip.maskX ?? 0.5,
-          maskY: clip.maskY ?? 0.5,
-          maskWidth: clip.maskWidth ?? 0.6,
-          maskHeight: clip.maskHeight ?? 0.6,
-          maskRotation: clip.maskRotation ?? 0,
-          maskPoints: clip.maskPoints ?? [],
-          chromaKey: clip.chromaKey,
-          fadeIn: clip.fadeIn,
-          fadeOut: clip.fadeOut,
-          pitch: clip.pitch,
-          bass: clip.bass,
-          treble: clip.treble,
-          mid: clip.mid,
-          bassFrequency: clip.bassFrequency,
-          midFrequency: clip.midFrequency,
-          midWidth: clip.midWidth,
-          trebleFrequency: clip.trebleFrequency,
-          pan: clip.pan,
-          compressor: clip.compressor,
-          duckSegments,
-          keyframes: clip.keyframes,
-          transitionIn: clip.transitionIn,
-          transitionOut: clip.transitionOut,
-        });
-      } else if (track.kind === "audio" && asset.info.hasAudio) {
-        clips.push({
-          path: asset.path,
-          trackId: track.id,
-          start: clip.start,
-          duration: clip.duration,
-          trimIn: clip.trimIn,
-          speed: clip.speed,
-          speedRamp: clip.speedRamp ?? [],
-          volume: clip.volume * trackVolume,
-          opacity: 1,
-          hasAudio: true,
-          hasVideo: false,
-          isImage: false,
-          fit: "contain",
-          x: 0,
-          y: 0,
-          scale: 1,
-          rotation: 0,
-          mask: "none",
-          maskX: 0.5,
-          maskY: 0.5,
-          maskWidth: 0.6,
-          maskHeight: 0.6,
-          maskRotation: 0,
-          maskPoints: [],
-          fadeIn: clip.fadeIn,
-          fadeOut: clip.fadeOut,
-          pitch: clip.pitch,
-          bass: clip.bass,
-          treble: clip.treble,
-          mid: clip.mid,
-          bassFrequency: clip.bassFrequency,
-          midFrequency: clip.midFrequency,
-          midWidth: clip.midWidth,
-          trebleFrequency: clip.trebleFrequency,
-          pan: clip.pan,
-          compressor: clip.compressor,
-          duckSegments,
-          keyframes: clip.keyframes,
-          transitionIn: clip.transitionIn,
-          transitionOut: clip.transitionOut,
-        });
-      }
-    }
-  }
-
-  const scale = height / project.height;
-  const effects: ExportEffectRequest[] = project.tracks
-    .filter((track) => track.kind === "misc" && !track.hidden)
-    .flatMap((track) => track.clips.filter((clip) => clip.effect).map((clip) => ({
-      ...clip.effect!, start: clip.start, duration: clip.duration, opacity: clip.opacity, lut: clip.lut,
-    })));
-  const texts = project.tracks
-    .filter((track) => track.kind === "text" && !track.hidden)
-    .flatMap((track) =>
-      track.clips
-        .filter((clip) => clip.text)
-        .map((clip) => ({
-          text: clip.text!.text,
-          start: clip.start,
-          duration: clip.duration,
-          x: clip.text!.x,
-          y: clip.text!.y,
-          size: clip.text!.size * scale,
-          rotation: clip.text!.rotation,
-          keyframes: clip.keyframes,
-          transitionIn: clip.transitionIn,
-          transitionOut: clip.transitionOut,
-          color: clip.text!.color,
-          fontWeight: clip.text!.fontWeight,
-          italic: clip.text!.italic,
-          fontFamily: clip.text!.fontFamily,
-          align: clip.text!.align,
-          underline: clip.text!.underline,
-          characterSpacing: clip.text!.characterSpacing * scale,
-          lineHeight: clip.text!.lineHeight,
-          outlineColor: clip.text!.outlineColor,
-          outlineWidth: clip.text!.outlineWidth * scale,
-          backgroundColor: clip.text!.backgroundColor,
-          backgroundOpacity: clip.text!.backgroundOpacity,
-          brightness: clip.text!.brightness,
-          shadow: clip.text!.shadow,
-          shadowColor: clip.text!.shadowColor,
-          curve: clip.text!.curve,
-          opacity: clip.opacity,
-        })),
-    );
-
-  return {
-    output,
-    width,
-    height,
-    fps: project.fps,
-    duration: cachedProjectDuration(project.tracks, 0),
-    clips,
-    texts,
-    effects,
-    encoder,
-  };
 }
 
 export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -359,7 +193,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
     setCancelling(false);
     announce(t("Export started."));
     try {
-      const request = buildRequest(project, target, dimensions.width, dimensions.height, encoder);
+      const request = buildExportRequest(project, target, dimensions.width, dimensions.height, encoder);
       request.fps = fps;
       request.quality = quality;
       const exported = await exportProject(request);

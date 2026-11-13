@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "./media";
-import { normalizeProject } from "./project";
+import { isSupportedProject, normalizeProject } from "./project";
 import type { Project, ProjectSummary } from "./types";
 
 /** Regenerable per-asset media caches: poster frames and waveform peaks. */
@@ -100,7 +100,7 @@ function readLocalProject(id: string): Project | null {
     const raw = localStorage.getItem(PROJECT_KEY(id));
     if (!raw) return null;
     const project = JSON.parse(raw) as Project;
-    if (project.schemaVersion !== 1 || !Array.isArray(project.tracks)) return null;
+    if (!isSupportedProject(project)) return null;
     return project;
   } catch {
     return null;

@@ -141,6 +141,12 @@ fn video_clip(path: &Path) -> ExportClip {
         scale: 1.0,
         rotation: 0.0,
         mask: Some("none".to_string()),
+        mask_x: 0.5,
+        mask_y: 0.5,
+        mask_width: 0.6,
+        mask_height: 0.6,
+        mask_rotation: 0.0,
+        mask_points: Vec::new(),
         chroma_key: None,
         fade_in: 0.0,
         fade_out: 0.0,
@@ -441,7 +447,9 @@ fn graph_builder_expresses_speed_ramps() {
     ];
     let request = request(Path::new("out.mp4"), vec![clip], 4.0);
     let graph = build_graph(&request);
-    assert!(graph.contains("setpts=(if(lt((T-STARTT),"));
+    // The setpts expression is quoted: FFmpeg reads a comma as the end of a
+    // filter, and the expression holds the commas of its own.
+    assert!(graph.contains("setpts='(if(lt((T-STARTT),"));
     assert!(graph.contains("asplit="));
     assert!(graph.contains("concat=n="));
     assert!(graph.contains("atempo="));

@@ -566,6 +566,16 @@ fn escape_text(text: &str) -> String {
         .replace('\n', "\\n")
 }
 
+/// Wraps a filter option value that holds an expression in quotes.
+///
+/// FFmpeg reads a comma as the end of a filter, so an expression with a comma
+/// inside it — a keyframe ramp or a speed ramp — has to be quoted before it
+/// goes into the graph. The quotes are stripped again when FFmpeg parses the
+/// option, so the expression itself stays untouched.
+fn quoted(value: &str) -> String {
+    format!("'{value}'")
+}
+
 fn drawtext_color(color: &str, brightness: f64) -> String {
     if let Some(hex) = color.strip_prefix('#') {
         if hex.len() == 6 {
@@ -973,7 +983,8 @@ pub fn build_graph(request: &ExportRequest) -> String {
         } else {
             let expr = speed_setpts_expr(&segments);
             format!(
-                "trim=start={trim:.3}:duration={source_duration:.3},setpts=({expr})/TB+{start:.3}/TB"
+                "trim=start={trim:.3}:duration={source_duration:.3},setpts={}",
+                quoted(&format!("({expr})/TB+{start:.3}/TB"))
             )
         };
         let local_t = format!("(t-{start:.6})");
@@ -990,7 +1001,7 @@ pub fn build_graph(request: &ExportRequest) -> String {
         } else {
             String::new()
         };
-        let mask = clip_mask_filter(&clip);
+        let mask = clip_mask_filter(clip);
         let opacity_expr = keyframe_expr(
             &clip.keyframes,
             "opacity",
@@ -1128,7 +1139,9 @@ pub fn build_graph(request: &ExportRequest) -> String {
             .cloned()
             .unwrap_or_else(|| ("0".to_string(), "0".to_string()));
         lines.push(format!(
-            "[{base}][{label}]overlay=(W-w)/2+W*({x_expr}):(H-h)/2+H*({y_expr}):eof_action=pass:enable='between(t,{overlay_start:.3},{end:.3})'[bg{index}]"
+            "[{base}][{label}]overlay=x={}:y={}:eof_action=pass:enable='between(t,{overlay_start:.3},{end:.3})'[bg{index}]",
+            quoted(&format!("(W-w)/2+W*({x_expr})")),
+            quoted(&format!("(H-h)/2+H*({y_expr})")),
         ));
         base = format!("bg{index}");
 
@@ -1138,8 +1151,10 @@ pub fn build_graph(request: &ExportRequest) -> String {
                 .cloned()
                 .unwrap_or_else(|| ("0".to_string(), "0".to_string()));
             lines.push(format!(
-                "[{base}][xfp{}]overlay=(W-w)/2+W*({x_expr}):(H-h)/2+H*({y_expr}):eof_action=pass:enable='between(t,{:.3},{:.3})'[bgx{}]",
+                "[{base}][xfp{}]overlay=x={}:y={}:eof_action=pass:enable='between(t,{:.3},{:.3})'[bgx{}]",
                 cut.to,
+                quoted(&format!("(W-w)/2+W*({x_expr})")),
+                quoted(&format!("(H-h)/2+H*({y_expr})")),
                 cut.start,
                 cut.start + cut.duration,
                 cut.to
@@ -1302,8 +1317,12 @@ pub fn build_graph(request: &ExportRequest) -> String {
                 _ => format!("w*({x_expr})-{:.2}-{box_padding:.2}", box_width / 2.0),
             };
             let label = format!("txt{index}_bg");
-            lines.push(format!("[{base}]drawbox=x={box_x}:y=h*({y_expr})-{:.2}:w={:.2}:h={:.2}:color={background}@{:.3}:t=fill:enable='between(t,{start:.3},{end:.3})'[{label}]",
-                box_height / 2.0 + box_padding, box_width + box_padding * 2.0, box_height + box_padding * 2.0, text.background_opacity.clamp(0.0, 1.0)));
+            lines.push(format!("[{base}]drawbox=x={}:y={}:w={:.2}:h={:.2}:color={background}@{:.3}:t=fill:enable='between(t,{start:.3},{end:.3})'[{label}]",
+                quoted(&box_x),
+                quoted(&format!("h*({y_expr})-{:.2}", box_height / 2.0 + box_padding)),
+                box_width + box_padding * 2.0,
+                box_height + box_padding * 2.0,
+                text.background_opacity.clamp(0.0, 1.0)));
             base = label;
         }
         if text.curve.abs() < 1.0
@@ -1314,7 +1333,10 @@ pub fn build_graph(request: &ExportRequest) -> String {
             let label = format!("txt{index}");
             let dynamic_anchor = format!("w*({x_expr})");
             let dynamic_y = format!("h*({y_expr})-text_h/2");
-            lines.push(format!("[{base}]drawtext={common}:text='{}':x={dynamic_anchor}-{offset}:y={dynamic_y}:enable='between(t,{start:.3},{end:.3})'[{label}]", escape_text(&text.text)));
+            lines.push(format!("[{base}]drawtext={common}:text='{}':x={}:y={}:enable='between(t,{start:.3},{end:.3})'[{label}]",
+                escape_text(&text.text),
+                quoted(&format!("{dynamic_anchor}-{offset}")),
+                quoted(&dynamic_y)));
             base = label;
         } else if text.text.contains('\n') {
             let anchor_x = format!("w*({x_expr})");
@@ -1324,7 +1346,10 @@ pub fn build_graph(request: &ExportRequest) -> String {
                     (line_index as f64 - (line_count - 1.0) / 2.0) * size * line_height
                 );
                 let label = format!("txt{index}_line{line_index}");
-                lines.push(format!("[{base}]drawtext={common}:text='{}':x={anchor_x}-{offset}:y={line_y}:enable='between(t,{start:.3},{end:.3})'[{label}]", escape_text(line_text)));
+                lines.push(format!("[{base}]drawtext={common}:text='{}':x={}:y={}:enable='between(t,{start:.3},{end:.3})'[{label}]",
+                    escape_text(line_text),
+                    quoted(&format!("{anchor_x}-{offset}")),
+                    quoted(&line_y)));
                 base = label;
             }
         } else {
@@ -1369,7 +1394,10 @@ pub fn build_graph(request: &ExportRequest) -> String {
                 let world_x = format!("({anchor_x})+({local_x:.2})*cos(({rotation_expr})*PI/180)-({local_y:.2})*sin(({rotation_expr})*PI/180)");
                 let world_y = format!("({anchor_y})+({local_x:.2})*sin(({rotation_expr})*PI/180)+({local_y:.2})*cos(({rotation_expr})*PI/180)");
                 let label = format!("txt{index}_{char_index}");
-                lines.push(format!("[{base}]drawtext={common}:text='{}':x={world_x}-text_w/2:y={world_y}-text_h/2:enable='between(t,{start:.3},{end:.3})'[{label}]", escape_text(&ch.to_string())));
+                lines.push(format!("[{base}]drawtext={common}:text='{}':x={}:y={}:enable='between(t,{start:.3},{end:.3})'[{label}]",
+                    escape_text(&ch.to_string()),
+                    quoted(&format!("{world_x}-text_w/2")),
+                    quoted(&format!("{world_y}-text_h/2"))));
                 base = label;
                 cursor += advance;
             }
@@ -1388,8 +1416,10 @@ pub fn build_graph(request: &ExportRequest) -> String {
                 let line_offset =
                     (line_index as f64 - (line_count - 1.0) / 2.0) * size * line_height;
                 let label = format!("txt{index}_underline{line_index}");
-                lines.push(format!("[{base}]drawbox=x={underline_x}:y=h*({y_expr})+{:.2}:w={underline_width:.2}:h={:.2}:color={}@{:.3}:t=fill:enable='between(t,{start:.3},{end:.3})'[{label}]",
-                    line_offset + size * 0.55, (size * 0.045).max(1.0), color, text.opacity.clamp(0.0, 1.0)));
+                lines.push(format!("[{base}]drawbox=x={}:y={}:w={underline_width:.2}:h={:.2}:color={}@{:.3}:t=fill:enable='between(t,{start:.3},{end:.3})'[{label}]",
+                    quoted(&underline_x),
+                    quoted(&format!("h*({y_expr})+{:.2}", line_offset + size * 0.55)),
+                    (size * 0.045).max(1.0), color, text.opacity.clamp(0.0, 1.0)));
                 base = label;
             }
         }
@@ -1417,7 +1447,15 @@ pub fn build_graph(request: &ExportRequest) -> String {
             } else {
                 clip_duration * speed
             };
-            let (audio_input, trim_part, tempo_part) = if ramp_active {
+            // Every filter of the chain is a separate entry. The chain is
+            // joined with commas, and a label is followed by the name of the
+            // first filter — a comma right after a label would leave FFmpeg
+            // with an empty filter.
+            let mut chain: Vec<String> = Vec::new();
+            // The head is the label the chain starts from. Both branches set
+            // it, so it is left uninitialised until they do.
+            let head;
+            if ramp_active {
                 let segments = speed_segments(&clip.speed_ramp, clip_duration);
                 let count = segments.len();
                 let split_labels: Vec<String> = (0..count)
@@ -1456,78 +1494,68 @@ pub fn build_graph(request: &ExportRequest) -> String {
                         .map(|label| format!("[{label}]"))
                         .collect::<String>()
                 ));
-                (format!("[concat{index}]"), String::new(), String::new())
+                head = format!("[concat{index}]");
             } else {
-                let tempo = atempo_filters(speed);
-                let tempo_part = if tempo.is_empty() {
-                    String::new()
-                } else {
-                    format!(",{tempo}")
-                };
-                (
-                    format!("[{index}:a]"),
-                    format!(
-                        "atrim=start={:.3}:duration={source_duration:.3},asetpts=PTS-STARTPTS",
-                        clip.trim_in.max(0.0)
-                    ),
-                    tempo_part,
-                )
-            };
+                head = format!("[{index}:a]");
+                chain.push(format!(
+                    "atrim=start={:.3}:duration={source_duration:.3},asetpts=PTS-STARTPTS",
+                    clip.trim_in.max(0.0)
+                ));
+            }
             let pitch_ratio = 2.0f64.powf(clip.pitch.clamp(-12.0, 12.0) / 12.0);
-            let pitch_filter = if (pitch_ratio - 1.0).abs() > 0.001 {
-                format!(
-                    ",asetrate=48000*{pitch_ratio:.6},aresample=48000,atempo={:.6}",
-                    1.0 / pitch_ratio
-                )
-            } else {
-                String::new()
-            };
-            let bass_filter = if clip.bass.abs() > 0.01 {
-                format!(
-                    ",bass=g={:.2}:f={:.1}",
+            if (pitch_ratio - 1.0).abs() > 0.001 {
+                chain.push(format!("asetrate=48000*{pitch_ratio:.6}"));
+                chain.push("aresample=48000".to_string());
+                chain.push(format!("atempo={:.6}", 1.0 / pitch_ratio));
+            }
+            if !ramp_active {
+                // A ramp changes the speed of every segment on its own.
+                let tempo = atempo_filters(speed);
+                if !tempo.is_empty() {
+                    chain.push(tempo);
+                }
+            }
+            chain.push("aresample=48000".to_string());
+            chain.push(
+                "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo".to_string(),
+            );
+            if clip.bass.abs() > 0.01 {
+                chain.push(format!(
+                    "bass=g={:.2}:f={:.1}",
                     clip.bass.clamp(-12.0, 12.0),
                     clip.bass_frequency.clamp(20.0, 20000.0)
-                )
-            } else {
-                String::new()
-            };
-            let mid_filter = if clip.mid.abs() > 0.01 {
-                format!(
-                    ",equalizer=f={:.1}:t=o:w={:.3}:g={:.2}",
+                ));
+            }
+            if clip.mid.abs() > 0.01 {
+                chain.push(format!(
+                    "equalizer=f={:.1}:t=o:w={:.3}:g={:.2}",
                     clip.mid_frequency.clamp(20.0, 20000.0),
                     clip.mid_width.clamp(0.1, 6.0),
                     clip.mid.clamp(-24.0, 24.0)
-                )
-            } else {
-                String::new()
-            };
-            let treble_filter = if clip.treble.abs() > 0.01 {
-                format!(
-                    ",treble=g={:.2}:f={:.1}",
+                ));
+            }
+            if clip.treble.abs() > 0.01 {
+                chain.push(format!(
+                    "treble=g={:.2}:f={:.1}",
                     clip.treble.clamp(-12.0, 12.0),
                     clip.treble_frequency.clamp(20.0, 20000.0)
-                )
-            } else {
-                String::new()
-            };
-            let pan_filter = if clip.pan.abs() > 0.001 {
+                ));
+            }
+            if clip.pan.abs() > 0.001 {
                 let (left, right) = pan_gains(clip.pan);
-                format!(",pan=stereo|c0={left:.4}*c0|c1={right:.4}*c1")
-            } else {
-                String::new()
-            };
-            let compressor_filter = match clip.compressor.as_ref() {
-                Some(compressor) if compressor.enabled => {
+                chain.push(format!("pan=stereo|c0={left:.4}*c0|c1={right:.4}*c1"));
+            }
+            if let Some(compressor) = clip.compressor.as_ref() {
+                if compressor.enabled {
                     let threshold = 10f64.powf(compressor.threshold.clamp(-60.0, 0.0) / 20.0);
-                    format!(
-                        ",acompressor=threshold={threshold:.6}:ratio={:.2}:attack={:.2}:release={:.2}:makeup=1",
+                    chain.push(format!(
+                        "acompressor=threshold={threshold:.6}:ratio={:.2}:attack={:.2}:release={:.2}:makeup=1",
                         compressor.ratio.clamp(1.0, 20.0),
                         compressor.attack.clamp(0.01, 2000.0),
                         compressor.release.clamp(0.01, 9000.0)
-                    )
+                    ));
                 }
-                _ => String::new(),
-            };
+            }
             let fade_in = clip.fade_in.clamp(0.0, clip.duration.max(0.0));
             let fade_out = clip.fade_out.clamp(0.0, clip.duration.max(0.0));
             // A cut transition fades the audio of the clip that takes over and
@@ -1549,52 +1577,41 @@ pub fn build_graph(request: &ExportRequest) -> String {
                 }
                 None => 0.0,
             };
-            let fade_filters = format!(
-                "{}{}{}{}",
-                if fade_in > 0.0 {
-                    format!(",afade=t=in:st=0:d={fade_in:.3}")
-                } else {
-                    String::new()
-                },
-                if fade_out > 0.0 {
-                    format!(
-                        ",afade=t=out:st={:.3}:d={fade_out:.3}",
-                        (clip.duration - fade_out).max(0.0)
-                    )
-                } else {
-                    String::new()
-                },
-                if transition_in > 0.0 {
-                    format!(",afade=t=in:st=0:d={transition_in:.3}")
-                } else {
-                    String::new()
-                },
-                if transition_out > 0.0 {
-                    if cut_out.is_some() {
-                        // The clip runs on for the length of the transition so
-                        // its audio can crossfade into the next clip.
-                        format!(
-                            ",apad=pad_dur={transition_out:.3},afade=t=out:st={:.3}:d={transition_out:.3}",
-                            clip.duration.max(0.0)
-                        )
-                    } else {
-                        format!(
-                            ",afade=t=out:st={:.3}:d={transition_out:.3}",
-                            (clip.duration - transition_out).max(0.0)
-                        )
-                    }
-                } else {
-                    String::new()
-                }
-            );
             let volume_expr = keyframe_expr(&clip.keyframes, "volume", clip.volume, "t");
-            let duck_filter = match duck_volume_expr(&clip.duck_segments) {
-                Some(expr) => format!(",volume='{expr}':eval=frame"),
-                None => String::new(),
-            };
-            lines.push(format!(
-                "{audio_input}{trim_part}{pitch_filter}{tempo_part},aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo{bass_filter}{mid_filter}{treble_filter}{pan_filter}{compressor_filter},volume='{volume_expr}':eval=frame{fade_filters},adelay={start_ms}|{start_ms}{duck_filter}[a{index}]"
-            ));
+            chain.push(format!("volume='{volume_expr}':eval=frame"));
+            if fade_in > 0.0 {
+                chain.push(format!("afade=t=in:st=0:d={fade_in:.3}"));
+            }
+            if fade_out > 0.0 {
+                chain.push(format!(
+                    "afade=t=out:st={:.3}:d={fade_out:.3}",
+                    (clip.duration - fade_out).max(0.0)
+                ));
+            }
+            if transition_in > 0.0 {
+                chain.push(format!("afade=t=in:st=0:d={transition_in:.3}"));
+            }
+            if transition_out > 0.0 {
+                if cut_out.is_some() {
+                    // The clip runs on for the length of the transition so
+                    // its audio can crossfade into the next clip.
+                    chain.push(format!("apad=pad_dur={transition_out:.3}"));
+                    chain.push(format!(
+                        "afade=t=out:st={:.3}:d={transition_out:.3}",
+                        clip.duration.max(0.0)
+                    ));
+                } else {
+                    chain.push(format!(
+                        "afade=t=out:st={:.3}:d={transition_out:.3}",
+                        (clip.duration - transition_out).max(0.0)
+                    ));
+                }
+            }
+            chain.push(format!("adelay={start_ms}|{start_ms}"));
+            if let Some(expr) = duck_volume_expr(&clip.duck_segments) {
+                chain.push(format!("volume='{expr}':eval=frame"));
+            }
+            lines.push(format!("{}{}[a{index}]", head, chain.join(",")));
         }
         let inputs: String = audio_clips
             .iter()

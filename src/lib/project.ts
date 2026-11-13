@@ -8,6 +8,21 @@ import {
 } from "./audio";
 import type { Project } from "./types";
 
+/** The project schema version this build reads and writes. */
+export const PROJECT_SCHEMA_VERSION = 1;
+
+/**
+ * Checks that a parsed document is a project this build can open.
+ *
+ * A document written by a newer build is refused instead of guessed at, so an
+ * upgrade never silently drops the fields the newer format added.
+ */
+export function isSupportedProject(value: unknown): value is Project {
+  if (!value || typeof value !== "object") return false;
+  const project = value as Partial<Project>;
+  return project.schemaVersion === PROJECT_SCHEMA_VERSION && Array.isArray(project.tracks);
+}
+
 /**
  * Fills in values that older project files do not contain. The project format
  * stays backwards compatible: missing fields get their default instead of
