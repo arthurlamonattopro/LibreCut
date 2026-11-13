@@ -195,6 +195,32 @@ describe("timeline overlap and track editing", () => {
     expect(tracks[1].clips[0].start).toBeCloseTo(7, 5);
   });
 
+  it("moves selected clips to a compatible track in one undo step", () => {
+    useEditor.getState().openProject(project());
+    useEditor.getState().addTrack("video");
+    const target = useEditor.getState().project!.tracks.filter((track) => track.kind === "video").at(-1)!;
+    const state = useEditor.getState();
+    state.selectClip("one");
+    state.selectClip("two", { additive: true });
+    state.moveClipsToTrack(["one", "two"], target.id);
+
+    const moved = useEditor.getState().project!.tracks;
+    expect(moved.find((track) => track.id === target.id)!.clips.map((clip) => clip.id)).toEqual(["one", "two"]);
+    expect(moved.find((track) => track.id === "a")!.clips).toHaveLength(0);
+
+    useEditor.getState().undo();
+    expect(useEditor.getState().project!.tracks.find((track) => track.id === "a")!.clips).toHaveLength(2);
+  });
+
+  it("refuses to move a clip onto a track of another kind", () => {
+    useEditor.getState().openProject(project());
+    useEditor.getState().moveClipsToTrack(["one"], "b");
+
+    const tracks = useEditor.getState().project!.tracks;
+    expect(tracks.find((track) => track.id === "a")!.clips).toHaveLength(2);
+    expect(tracks.find((track) => track.id === "b")!.clips.map((clip) => clip.id)).toEqual(["three"]);
+  });
+
   it("deletes and reorders tracks", () => {
     useEditor.getState().openProject(project());
     useEditor.getState().addTrack("video");

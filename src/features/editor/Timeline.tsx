@@ -253,9 +253,35 @@ export function Timeline({ height = 310 }: { height?: number }) {
       const boundaries = dragBoundariesRef.current ?? clipBoundaries;
 
       if (drag.mode === "move") {
-        let next = Math.max(0, drag.originalStart + delta);
-        if (state.snap) next = Math.max(0, snapToBoundary(next, boundaries, threshold));
-        const applied = next - drag.originalStart;
+        // Highlight the track under the pointer so a cross-track drop has a
+        // visible target. Only a track the dragged clips can actually join is
+        // offered, matching the guard in onUp.
+        const hovered = document
+          .elementFromPoint(event.clientX, event.clientY)
+          ?.closest<HTMLElement>("[data-timeline-track]");
+        const hoveredId = hovered?.dataset.timelineTrack ?? null;
+        const hoveredTrack = hoveredId
+          ? state.project?.tracks.find((track) => track.id === hoveredId)
+          : undefined;
+        const compatible = Boolean(
+          hoveredTrack &&
+          hoveredId !== drag.trackId &&
+          drag.members.some(
+            (member) =>
+              state.project?.tracks.find((track) => track.id === member.trackId)?.kind === hoveredTrack.kind,
+          ),
+        );
+        const nextDropTrack = compatible ? hoveredId : null;
+        setDropTrack((current) => (current === nextDropTrack ? current : nextDropTrack));
+
+        // Snap from the pointer position, then clamp the whole group against
+        // time zero so its spacing is never squeezed.
+        let applied = delta;
+        if (state.snap) {
+          applied = snapToBoundary(drag.originalStart + delta, boundaries, threshold) - drag.originalStart;
+        }
+        const minStart = Math.min(...drag.members.map((member) => member.originalStart));
+        applied = Math.max(applied, -minStart);
         if (Math.abs(applied) < 1e-6) return;
         // Selecting a clip is not an undo step. The snapshot is taken when the
         // pointer first moves, so the first Ctrl+Z after a click undoes an edit.
