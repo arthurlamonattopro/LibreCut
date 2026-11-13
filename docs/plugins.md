@@ -63,3 +63,14 @@ corrected compatible file to continue.
 
 `src/lib/plugins.ts` contains the public TypeScript manifest types and runtime
 validation used by the editor.
+
+## Community preset packs
+
+The repository ships a reviewed preset pack in
+[`presets/community/`](../presets/community/README.md). It is an ordinary
+plugin manifest, so anything it can do, another pack can do too.
+
+[`docs/community-presets.md`](community-presets.md) describes what a preset
+pack may contain, the criteria a preset is reviewed against, the process a
+submission goes through, and the licence the preset values are published
+under.

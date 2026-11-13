@@ -1,0 +1,178 @@
+{
+  "manifestVersion": 2,
+  "apiVersion": "^1.0.0",
+  "permissions": [],
+  "id": "community.starter-pack",
+  "name": "Community Starter Pack",
+  "version": "1.0.0",
+  "description": "Reviewed color filters and text styles contributed by the LibreCut community.",
+  "license": "CC0-1.0",
+  "effects": [
+    {
+      "name": "Lift shadows",
+      "category": "Basic",
+      "values": { "brightness": 0.1, "contrast": 1.03 }
+    },
+    {
+      "name": "Matte contrast",
+      "category": "Basic",
+      "values": { "contrast": 1.18, "saturation": 0.92 }
+    },
+    {
+      "name": "Halation",
+      "category": "Basic",
+      "values": { "brightness": 0.05, "blur": 0.8, "saturation": 1.04 }
+    },
+    {
+      "name": "Slow shutter",
+      "category": "Basic",
+      "values": { "motionBlur": 0.55 }
+    },
+    {
+      "name": "Clean daylight",
+      "category": "Color",
+      "values": { "saturation": 1.08, "contrast": 1.05, "brightness": 0.02 }
+    },
+    {
+      "name": "Muted teal",
+      "category": "Color",
+      "values": { "saturation": 0.85, "hue": 8, "contrast": 1.08 }
+    },
+    {
+      "name": "Warm highlights",
+      "category": "Color",
+      "values": { "sepia": 0.1, "saturation": 1.12, "brightness": 0.03 }
+    },
+    {
+      "name": "Cool shadows",
+      "category": "Color",
+      "values": { "hue": -10, "saturation": 0.95, "contrast": 1.06 }
+    },
+    {
+      "name": "Citrus punch",
+      "category": "Color",
+      "values": { "saturation": 1.25, "hue": 14, "contrast": 1.05 }
+    },
+    {
+      "name": "Slate mono",
+      "category": "Color",
+      "values": { "saturation": 0.15, "contrast": 1.12, "brightness": 0.02 }
+    },
+    {
+      "name": "Faded print",
+      "category": "Vintage",
+      "values": { "sepia": 0.2, "saturation": 0.7, "contrast": 0.9, "brightness": 0.04 }
+    },
+    {
+      "name": "Warm archive",
+      "category": "Vintage",
+      "values": { "sepia": 0.35, "saturation": 0.8, "vignette": 0.3 }
+    },
+    {
+      "name": "Photo memory",
+      "category": "Vintage",
+      "values": { "sepia": 0.12, "saturation": 0.85, "contrast": 0.95, "vignette": 0.18 }
+    },
+    {
+      "name": "Night grade",
+      "category": "Cinematic",
+      "values": { "brightness": -0.08, "contrast": 1.15, "saturation": 0.9, "vignette": 0.3 }
+    },
+    {
+      "name": "Steel and shadow",
+      "category": "Cinematic",
+      "values": { "hue": -6, "saturation": 0.82, "contrast": 1.2, "vignette": 0.28 }
+    },
+    {
+      "name": "Warm bloom",
+      "category": "Cinematic",
+      "values": { "brightness": 0.06, "blur": 0.4, "sepia": 0.12, "saturation": 1.08 }
+    },
+    {
+      "name": "High burn",
+      "category": "Cinematic",
+      "values": { "contrast": 1.35, "brightness": -0.04, "saturation": 0.85 }
+    },
+    {
+      "name": "Hazy bloom",
+      "category": "Dream",
+      "values": { "brightness": 0.06, "blur": 1.4, "saturation": 0.95, "contrast": 0.94 }
+    },
+    {
+      "name": "Sugar wash",
+      "category": "Dream",
+      "values": { "saturation": 0.72, "brightness": 0.12, "contrast": 0.9, "blur": 0.5 }
+    },
+    {
+      "name": "Silk fade",
+      "category": "Dream",
+      "values": { "saturation": 0.88, "brightness": 0.09, "contrast": 0.95, "sepia": 0.06 }
+    }
+  ],
+  "textPresets": [
+    {
+      "name": "Lower third",
+      "text": "NAME",
+      "values": {
+        "size": 44,
+        "color": "#FFFFFF",
+        "fontWeight": "normal",
+        "align": "left",
+        "outlineColor": "#0B0B0D",
+        "outlineWidth": 2,
+        "shadow": 0.4,
+        "shadowColor": "#000000"
+      }
+    },
+    {
+      "name": "Chapter card",
+      "text": "CHAPTER ONE",
+      "values": {
+        "size": 72,
+        "color": "#FFFFFF",
+        "fontWeight": "bold",
+        "align": "center",
+        "characterSpacing": 8,
+        "outlineColor": "#101012",
+        "outlineWidth": 2
+      }
+    },
+    {
+      "name": "Subtitle bar",
+      "text": "Your subtitle here",
+      "values": {
+        "size": 34,
+        "color": "#F2F2F4",
+        "align": "center",
+        "backgroundColor": "#000000",
+        "backgroundOpacity": 0.55,
+        "lineHeight": 1.2
+      }
+    },
+    {
+      "name": "Small caption",
+      "text": "Add a caption",
+      "values": {
+        "size": 28,
+        "color": "#D8D8DC",
+        "align": "center",
+        "backgroundColor": "#000000",
+        "backgroundOpacity": 0.4
+      }
+    },
+    {
+      "name": "Serif quote",
+      "text": "A new perspective",
+      "values": {
+        "size": 52,
+        "color": "#F5EFE4",
+        "fontFamily": "Georgia",
+        "italic": true,
+        "align": "center",
+        "lineHeight": 1.35,
+        "shadow": 0.3,
+        "shadowColor": "#000000"
+      }
+    }
+  ]
+}

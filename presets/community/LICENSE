@@ -1,0 +1,49 @@
+License for the LibreCut community preset pack
+=============================================
+
+SPDX-License-Identifier: CC0-1.0
+Canonical legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+What this covers
+----------------
+
+The preset *data* in this folder — the JSON manifest files and the numbers,
+colour values, and names inside them — is dedicated to the public domain under
+CC0 1.0 Universal.
+
+To the extent possible under law, the contributors who authored these presets
+have waived all copyright and related or neighbouring rights to them, and
+dedicated them to the public domain worldwide. You may copy, modify, distribute,
+and use these presets, including in commercial work, without attribution,
+without permission, and without any obligation to share your own work under
+the same terms.
+
+The canonical CC0 1.0 text governs. The summary above is a convenience, not a
+substitute for it.
+
+What this does not cover
+------------------------
+
+The LibreCut application itself, its source code, and the documentation are
+licensed separately under GPL-3.0-only. See the LICENSE file at the root of the
+repository.
+
+Installing a preset pack does not make the project you edit with it a
+derivative work of LibreCut, and does not place any obligation on the video,
+audio, or images you produce.
+
+Third-party material
+--------------------
+
+A community preset pack must not contain third-party material. No LUT files,
+fonts, textures, or brand assets may be included. Presets describe numbers and
+colours that LibreCut's own inspector can reproduce; that is the whole
+vocabulary of the format.
+
+Contributions
+-------------
+
+By contributing a preset to this folder you agree that your contribution is
+dedicated to the public domain under CC0 1.0 Universal, matching the licence
+above. See docs/community-presets.md for the review criteria and the
+submission process.
