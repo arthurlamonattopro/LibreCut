@@ -1,31 +1,32 @@
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import {
-  LayoutGrid,
-  Maximize2,
-  Pause,
-  Play,
-  SkipBack,
-  SkipForward,
-  Square,
-} from "lucide-react";
 import { assetForClip, useEditor } from "../../stores/editor";
 import { mediaUrl } from "../../lib/media";
-import { formatClock, projectDuration } from "../../lib/time";
+import { projectDuration } from "../../lib/time";
 import { clipValue } from "../../lib/animation";
 import { renderTransition } from "../../lib/transitionPreview";
-import {
-  clipTransitionPlan,
-  transitionAlpha,
-  transitionProgress,
-  type ClipTransitionPlan,
-} from "../../lib/transitions";
+import { transitionAlpha, transitionProgress } from "../../lib/transitions";
 import { sourceOffsetAt, speedAt } from "../../lib/speed";
 import { duckGainAt, midFilterQ, projectDuckingSegments } from "../../lib/audio";
 import { recordMetric } from "../../lib/metrics";
 import { useT } from "../../lib/i18n";
 import { activeClips, buildTimelineIndex, type TimelineIndex } from "../../lib/timelineIndex";
-import type { ChromaKeyOptions, Clip, DuckSegment, LutSettings, MaskPoint, Project } from "../../lib/types";
+import {
+  applyClipMask,
+  applyLutToCanvas,
+  drawFitted,
+  drawSafeGuides,
+  drawTextClip,
+  keyedFrame,
+  maskFrameOf,
+  maskOverlayPoints as maskOverlayPointsFor,
+  maskPointAt,
+  simplifyMaskPoints,
+  transitionPlanOf,
+} from "../../lib/previewCanvas";
+import type { Clip, DuckSegment, MaskPoint, Project } from "../../lib/types";
+import { PreviewHeader, PreviewTransport } from "./preview/PreviewControls";
+import { PreviewStage } from "./preview/PreviewStage";
 
 type PoolEntry = {
   kind: "video" | "audio" | "image";
@@ -54,196 +55,6 @@ const POOL_RETENTION_SECONDS = 10;
 
 type Clock = { last: number; lastUi: number };
 type MotionHistory = { frames: HTMLCanvasElement[]; lastTime: number };
-let lutPreviewCanvas: HTMLCanvasElement | undefined;
-
-function colorWithAlpha(color: string, alpha: number): string {
-  const match = /^#([0-9a-f]{6})$/i.exec(color);
-  if (!match) return color;
-  const value = Number.parseInt(match[1], 16);
-  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
-}
-
-function applyLutToCanvas(canvas: HTMLCanvasElement, lut: LutSettings) {
-  const context = canvas.getContext("2d");
-  if (!context || lut.data.length !== lut.size ** 3 * 3) return;
-  const scale = Math.min(1, 640 / Math.max(canvas.width, canvas.height));
-  if (scale < 1) {
-    lutPreviewCanvas ??= document.createElement("canvas");
-    const preview = lutPreviewCanvas;
-    const width = Math.max(1, Math.round(canvas.width * scale));
-    const height = Math.max(1, Math.round(canvas.height * scale));
-    if (preview.width !== width || preview.height !== height) { preview.width = width; preview.height = height; }
-    const previewContext = preview.getContext("2d");
-    if (!previewContext) return;
-    previewContext.drawImage(canvas, 0, 0, width, height);
-    applyLutToCanvas(preview, lut);
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(preview, 0, 0, canvas.width, canvas.height);
-    return;
-  }
-  let image: ImageData;
-  try { image = context.getImageData(0, 0, canvas.width, canvas.height); } catch { return; }
-  const { data } = image;
-  const size = lut.size;
-  const domainMin = lut.domainMin ?? [0, 0, 0];
-  const domainMax = lut.domainMax ?? [1, 1, 1];
-  const sample = (r: number, g: number, b: number, channel: number) => lut.data[((r * size + g) * size + b) * 3 + channel];
-  const blend = Math.max(0, Math.min(1, lut.strength));
-  for (let pixel = 0; pixel < data.length; pixel += 4) {
-    const coords = [0, 1, 2].map((channel) => {
-      const value = data[pixel + channel] / 255;
-      return Math.max(0, Math.min(size - 1, ((value - domainMin[channel]) / (domainMax[channel] - domainMin[channel])) * (size - 1)));
-    });
-    const lo = coords.map(Math.floor);
-    const hi = coords.map((_, channel) => Math.min(size - 1, lo[channel] + 1));
-    const f = coords.map((value, channel) => value - lo[channel]);
-    for (let channel = 0; channel < 3; channel++) {
-      let transformed = 0;
-      for (let ri = 0; ri < 2; ri++) for (let gi = 0; gi < 2; gi++) for (let bi = 0; bi < 2; bi++) {
-        const weight = (ri ? f[0] : 1 - f[0]) * (gi ? f[1] : 1 - f[1]) * (bi ? f[2] : 1 - f[2]);
-        transformed += sample(ri ? hi[0] : lo[0], gi ? hi[1] : lo[1], bi ? hi[2] : lo[2], channel) * weight;
-      }
-      data[pixel + channel] = Math.round(data[pixel + channel] * (1 - blend) + Math.max(0, Math.min(1, transformed)) * 255 * blend);
-    }
-  }
-  context.putImageData(image, 0, 0);
-}
-
-function drawFitted(
-  ctx: CanvasRenderingContext2D,
-  source: CanvasImageSource,
-  sourceWidth: number,
-  sourceHeight: number,
-  width: number,
-  height: number,
-  fit: "contain" | "cover",
-) {
-  if (!sourceWidth || !sourceHeight) return;
-  const scale =
-    fit === "cover"
-      ? Math.max(width / sourceWidth, height / sourceHeight)
-      : Math.min(width / sourceWidth, height / sourceHeight);
-  const drawWidth = sourceWidth * scale;
-  const drawHeight = sourceHeight * scale;
-  try {
-    ctx.drawImage(source, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
-  } catch {
-    // A frame that is not decodable yet (or a CORS failure) should not break
-    // the compositor loop; the next frame will retry.
-  }
-}
-
-function keyedFrame(source: CanvasImageSource, sourceWidth: number, sourceHeight: number, options: ChromaKeyOptions, canvas: HTMLCanvasElement) {
-  const width = Math.max(1, Math.min(1600, sourceWidth));
-  const height = Math.max(1, Math.round(sourceHeight * width / sourceWidth));
-  if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return source;
-  ctx.clearRect(0, 0, width, height);
-  try {
-    ctx.drawImage(source, 0, 0, width, height);
-    const pixels = ctx.getImageData(0, 0, width, height);
-    const data = pixels.data;
-    const hex = options.color.replace("#", "");
-    const kr = Number.parseInt(hex.slice(0, 2), 16) || 0;
-    const kg = Number.parseInt(hex.slice(2, 4), 16) || 0;
-    const kb = Number.parseInt(hex.slice(4, 6), 16) || 0;
-    const threshold = Math.max(0, Math.min(1, options.similarity)) * 441.67;
-    const edge = Math.max(0.001, options.softness) * 441.67;
-    for (let i = 0; i < data.length; i += 4) {
-      const distance = Math.hypot(data[i] - kr, data[i + 1] - kg, data[i + 2] - kb);
-      const t = Math.max(0, Math.min(1, (distance - threshold) / edge));
-      data[i + 3] = Math.round(data[i + 3] * t * t * (3 - 2 * t));
-    }
-    ctx.putImageData(pixels, 0, 0);
-    return canvas;
-  } catch {
-    return source;
-  }
-}
-
-/**
- * Applies a clip mask in the clip's local frame.
- *
- * The mask travels with the clip: the caller applies the clip transform first,
- * so position and size are measured against the clip frame. The exporter uses
- * the same frame ordering.
- */
-function applyClipMask(
-  target: CanvasRenderingContext2D,
-  clip: Clip,
-  width: number,
-  height: number,
-) {
-  const mask = clip.mask;
-  if (!mask || mask === "none") return;
-  const minSide = Math.min(width, height);
-
-  if (mask === "custom") {
-    const points = clip.maskPoints ?? [];
-    if (points.length < 3) return;
-    target.beginPath();
-    points.forEach((point, index) => {
-      const x = (point.x - 0.5) * width;
-      const y = (point.y - 0.5) * height;
-      if (index === 0) target.moveTo(x, y);
-      else target.lineTo(x, y);
-    });
-    target.closePath();
-    target.clip();
-    return;
-  }
-
-  const maskWidth = Math.max(1, (clip.maskWidth ?? 0.6) * minSide);
-  const maskHeight = mask === "rectangle"
-    ? Math.max(1, (clip.maskHeight ?? 0.6) * minSide)
-    : maskWidth;
-  const centerX = ((clip.maskX ?? 0.5) - 0.5) * width;
-  const centerY = ((clip.maskY ?? 0.5) - 0.5) * height;
-
-  const matrix = target.getTransform();
-  target.translate(centerX, centerY);
-  const rotation = ((clip.maskRotation ?? 0) * Math.PI) / 180;
-  if (rotation) target.rotate(rotation);
-  target.beginPath();
-  if (mask === "circle") {
-    target.arc(0, 0, maskWidth / 2, 0, Math.PI * 2);
-  } else {
-    target.rect(-maskWidth / 2, -maskHeight / 2, maskWidth, maskHeight);
-  }
-  target.clip();
-  target.setTransform(matrix);
-}
-
-/**
- * Keeps a freehand mask to a workable vertex count.
- *
- * Affine points are sampled evenly, which is enough for a clip mask and keeps
- * the export expression short.
- */
-function simplifyMaskPoints(points: MaskPoint[], max = 32): MaskPoint[] {
-  if (points.length <= max) return points;
-  return Array.from({ length: max }, (_, index) =>
-    points[Math.round((index * (points.length - 1)) / (max - 1))],
-  );
-}
-
-/**
- * The transition plan of a clip: which transition plays into it, which plays
- * out of it, and whether its own edges fade it in or out.
- */
-function transitionPlanOf(index: TimelineIndex | null, clip: Clip): ClipTransitionPlan {
-  if (!index) return clipTransitionPlan(clip, null, null);
-  const location = index.clipLocations.get(clip.id);
-  if (!location) return clipTransitionPlan(clip, null, null);
-  const { track, index: position } = location;
-  return clipTransitionPlan(
-    clip,
-    track.transitions[position] ?? null,
-    track.transitions[position + 1] ?? null,
-  );
-}
-
 export function Preview() {
   const t = useT();
   const project = useEditor((state) => state.project);
@@ -321,55 +132,23 @@ export function Preview() {
     };
   }, [drawingCustomMask, project?.width, project?.height]);
 
-  const maskFrame = () => {
-    if (!selectedClip || !project) return null;
-    const localTime = Math.max(0, Math.min(selectedClip.duration, currentTime - selectedClip.start));
-    const rotation = (clipValue(selectedClip, "rotation", localTime) * Math.PI) / 180;
-    return {
-      x: clipValue(selectedClip, "x", localTime),
-      y: clipValue(selectedClip, "y", localTime),
-      scale: Math.max(0.001, clipValue(selectedClip, "scale", localTime)),
-      cos: Math.cos(rotation),
-      sin: Math.sin(rotation),
-    };
-  };
+  const maskFrame = () =>
+    selectedClip && project ? maskFrameOf(selectedClip, currentTime) : null;
 
   const maskPointFromEvent = (event: ReactPointerEvent<SVGSVGElement>): MaskPoint | null => {
     const canvas = canvasRef.current;
     const activeProject = projectRef.current;
     const frame = maskFrame();
     if (!canvas || !activeProject || !frame) return null;
-    const rect = canvas.getBoundingClientRect();
-    if (!rect.width || !rect.height) return null;
-    // Undo the clip transform to store the point in the clip-local frame.
-    const offsetX = event.clientX - rect.left - rect.width * (0.5 + frame.x);
-    const offsetY = event.clientY - rect.top - rect.height * (0.5 + frame.y);
-    const projectX = offsetX * (activeProject.width / rect.width);
-    const projectY = offsetY * (activeProject.height / rect.height);
-    const localX = (projectX * frame.cos + projectY * frame.sin) / frame.scale;
-    const localY = (-projectX * frame.sin + projectY * frame.cos) / frame.scale;
-    return {
-      x: Math.max(0, Math.min(1, localX / activeProject.width + 0.5)),
-      y: Math.max(0, Math.min(1, localY / activeProject.height + 0.5)),
-    };
+    return maskPointAt(activeProject, frame, canvas.getBoundingClientRect(), event.clientX, event.clientY);
   };
 
   /** Maps clip-local mask points to pixels on the displayed canvas. */
   const maskOverlayPoints = (points: MaskPoint[]): string => {
     const activeProject = projectRef.current;
     const frame = maskFrame();
-    if (!activeProject || !frame || !canvasBox.width || !canvasBox.height) return "";
-    const centerX = canvasBox.width * (0.5 + frame.x);
-    const centerY = canvasBox.height * (0.5 + frame.y);
-    return points.map((point) => {
-      const localX = (point.x - 0.5) * activeProject.width * frame.scale;
-      const localY = (point.y - 0.5) * activeProject.height * frame.scale;
-      const rotatedX = localX * frame.cos - localY * frame.sin;
-      const rotatedY = localX * frame.sin + localY * frame.cos;
-      const x = centerX + rotatedX * (canvasBox.width / activeProject.width);
-      const y = centerY + rotatedY * (canvasBox.height / activeProject.height);
-      return `${x},${y}`;
-    }).join(" ");
+    if (!activeProject || !frame) return "";
+    return maskOverlayPointsFor(points, activeProject, frame, canvasBox);
   };
 
   const startMaskDrawing = (event: ReactPointerEvent<SVGSVGElement>) => {
@@ -902,123 +681,11 @@ export function Preview() {
 
     for (const { track, clip } of index ? activeClips(index, time) : []) {
       if (track.hidden || track.kind !== "text" || !clip.text) continue;
-      {
-        const text = clip.text;
-        const plan = clipTransitionPlan(clip, null, null);
-        const transition = transitionAlpha(clip, time, plan);
-        const x = clipValue(clip, "x", time - clip.start, text.x) * activeProject.width;
-        const y = clipValue(clip, "y", time - clip.start, text.y) * activeProject.height;
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate((clipValue(clip, "rotation", time - clip.start, text.rotation) * Math.PI) / 180);
-        ctx.globalAlpha = clipValue(clip, "opacity", time - clip.start) * transition;
-        const brightness = Math.max(0, Math.min(2, text.brightness));
-        const brightColor = /^#[0-9a-f]{6}$/i.test(text.color)
-          ? `#${[1, 3, 5].map((at) => Math.min(255, Math.round(parseInt(text.color.slice(at, at + 2), 16) * brightness)).toString(16).padStart(2, "0")).join("")}`
-          : text.color;
-        const lines = text.text.split("\n");
-        const lineHeight = text.size * Math.max(0.8, text.lineHeight);
-        ctx.fillStyle = brightColor;
-        ctx.strokeStyle = text.outlineColor;
-        ctx.lineWidth = text.outlineWidth * 2;
-        ctx.lineJoin = "round";
-        ctx.font = `${text.italic ? "italic " : ""}${text.fontWeight} ${text.size}px "${text.fontFamily}", "Segoe UI", sans-serif`;
-        ctx.textAlign = text.align;
-        ctx.textBaseline = "middle";
-        ctx.letterSpacing = `${text.characterSpacing}px`;
-        ctx.shadowColor = colorWithAlpha(text.shadowColor, Math.max(0, Math.min(1, text.shadow)));
-        ctx.shadowBlur = Math.max(0, text.size * 0.14 * text.shadow);
-        ctx.shadowOffsetY = Math.max(0, text.size * 0.05 * text.shadow);
-        if (text.backgroundOpacity > 0) {
-          const maxWidth = Math.max(1, ...lines.map((line) => ctx.measureText(line).width));
-          const padding = text.size * 0.2;
-          const left = text.align === "left" ? -padding : text.align === "right" ? -maxWidth - padding : -maxWidth / 2 - padding;
-          ctx.save();
-          ctx.shadowColor = "transparent";
-          ctx.globalAlpha *= Math.max(0, Math.min(1, text.backgroundOpacity));
-          ctx.fillStyle = text.backgroundColor;
-          ctx.fillRect(left, -(lines.length * lineHeight) / 2 - padding, maxWidth + padding * 2, lines.length * lineHeight + padding * 2);
-          ctx.restore();
-        }
-        if (lines.length === 1 && Math.abs(text.curve) >= 1) {
-          const chars = Array.from(text.text);
-          const widths = chars.map((char) => ctx.measureText(char).width + text.characterSpacing);
-          const glyphWidth = widths.reduce((sum, width) => sum + width, 0);
-          const arc = Math.abs(text.curve) * Math.PI / 180;
-          const totalWidth = Math.max(glyphWidth, arc * text.size * 1.15);
-          const extraGap = chars.length > 1 ? (totalWidth - glyphWidth) / (chars.length - 1) : 0;
-          const left = text.align === "left" ? 0 : text.align === "right" ? -totalWidth : -totalWidth / 2;
-          let cursor = left;
-          const radius = totalWidth / Math.max(0.01, arc);
-          chars.forEach((char, index) => {
-            const advance = widths[index] + (index < chars.length - 1 ? extraGap : 0);
-            const angle = ((cursor + advance / 2 - (left + totalWidth / 2)) / totalWidth) * arc;
-            const curveX = Math.sign(text.curve) * radius * Math.sin(angle);
-            const curveY = Math.sign(text.curve) * radius * (1 - Math.cos(angle));
-            ctx.save();
-            ctx.translate(left + totalWidth / 2 + curveX, curveY);
-            ctx.rotate(Math.sign(text.curve) * angle);
-            if (text.outlineWidth > 0) ctx.strokeText(char, 0, 0);
-            ctx.fillText(char, 0, 0);
-            if (text.underline) ctx.fillRect(-widths[index] / 2, text.size * 0.55, widths[index], Math.max(1, text.size * 0.045));
-            ctx.restore();
-            cursor += advance;
-          });
-        } else {
-          lines.forEach((line, index) => {
-            const lineY = (index - (lines.length - 1) / 2) * lineHeight;
-            if (text.outlineWidth > 0) ctx.strokeText(line, 0, lineY);
-            ctx.fillText(line, 0, lineY);
-            if (text.underline) {
-              const width = ctx.measureText(line).width;
-              const left = text.align === "left" ? 0 : text.align === "right" ? -width : -width / 2;
-              ctx.fillRect(left, lineY + text.size * 0.55, width, Math.max(1, text.size * 0.045));
-            }
-          });
-        }
-        ctx.restore();
-      }
+      drawTextClip(ctx, clip, activeProject, time);
     }
 
     if (guidesRef.current) {
-      const projectWidth = activeProject.width;
-      const projectHeight = activeProject.height;
-      const line = Math.max(1, 1.5 / Math.max(0.0001, scale));
-      ctx.save();
-      ctx.lineWidth = line;
-      ctx.setLineDash([line * 5, line * 4]);
-      ctx.strokeStyle = "rgba(255,255,255,0.5)";
-      ctx.strokeRect(projectWidth * 0.05, projectHeight * 0.05, projectWidth * 0.9, projectHeight * 0.9);
-      ctx.strokeStyle = "rgba(84,214,222,0.55)";
-      ctx.strokeRect(projectWidth * 0.1, projectHeight * 0.1, projectWidth * 0.8, projectHeight * 0.8);
-      ctx.setLineDash([]);
-      ctx.strokeStyle = "rgba(255,255,255,0.18)";
-      ctx.lineWidth = line;
-      for (const fraction of [1 / 3, 2 / 3]) {
-        ctx.beginPath();
-        ctx.moveTo(projectWidth * fraction, 0);
-        ctx.lineTo(projectWidth * fraction, projectHeight);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(0, projectHeight * fraction);
-        ctx.lineTo(projectWidth, projectHeight * fraction);
-        ctx.stroke();
-      }
-      ctx.beginPath();
-      ctx.moveTo(projectWidth / 2 - projectWidth * 0.025, projectHeight / 2);
-      ctx.lineTo(projectWidth / 2 + projectWidth * 0.025, projectHeight / 2);
-      ctx.moveTo(projectWidth / 2, projectHeight / 2 - projectHeight * 0.025);
-      ctx.lineTo(projectWidth / 2, projectHeight / 2 + projectHeight * 0.025);
-      ctx.strokeStyle = "rgba(255,255,255,0.45)";
-      ctx.stroke();
-      ctx.font = `${Math.max(10, Math.round(projectWidth * 0.011))}px "Segoe UI", sans-serif`;
-      ctx.textAlign = "left";
-      ctx.textBaseline = "top";
-      ctx.fillStyle = "rgba(255,255,255,0.55)";
-      ctx.fillText(t("ACTION SAFE"), projectWidth * 0.05 + line * 6, projectHeight * 0.05 + line * 5);
-      ctx.fillStyle = "rgba(84,214,222,0.75)";
-      ctx.fillText(t("TITLE SAFE"), projectWidth * 0.1 + line * 6, projectHeight * 0.1 + line * 5);
-      ctx.restore();
+      drawSafeGuides(ctx, activeProject, scale, t("ACTION SAFE"), t("TITLE SAFE"));
     }
   };
 
@@ -1204,141 +871,43 @@ export function Preview() {
 
   return (
     <section aria-label={t("Preview")} className="flex min-w-0 flex-1 flex-col bg-surface">
-      <div className="flex h-10 shrink-0 items-center justify-between border-b border-line-soft px-4">
-        <div className="flex items-center gap-2 text-[11px] text-muted">
-          <span className="font-medium text-ink">{t("Preview")}</span>
-          <span>{project ? `${project.width}×${project.height}` : "—"}</span>
-          <span className="text-dim" aria-hidden="true">·</span>
-          <span>{project?.fps ?? 30} fps</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <button
-            className={`btn btn-ghost btn-icon btn-sm ${showGuides ? "text-accent" : ""}`}
-            onClick={() => setShowGuides((value) => !value)}
-            title={t("Toggle title and action safe-area guides")}
-            aria-label={t("Toggle title and action safe-area guides")}
-            aria-pressed={showGuides}
-          >
-            <LayoutGrid size={13} aria-hidden="true" />
-          </button>
-          <button className="btn btn-ghost btn-icon btn-sm" onClick={fullscreen} title={t("Fullscreen preview")} aria-label={t("Fullscreen preview")}>
-            <Maximize2 size={13} aria-hidden="true" />
-          </button>
-        </div>
-      </div>
+      <PreviewHeader
+        project={project}
+        showGuides={showGuides}
+        onToggleGuides={() => setShowGuides((value) => !value)}
+        onFullscreen={fullscreen}
+      />
 
-      <div ref={stageRef} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#09090b] p-5">
-        <canvas
-          ref={canvasRef}
-          role="img"
-          aria-label={t("Preview of {name} at {time}", { name: project?.name ?? t("the project"), time: formatClock(currentTime, fps) })}
-          className="relative max-h-full max-w-full rounded-[2px] bg-black ring-1 ring-white/15"
-          style={{
-            aspectRatio: project ? `${project.width} / ${project.height}` : "16 / 9",
-            width: "100%",
-            objectFit: "contain",
-          }}
-          onClick={() => {
-            if (!drawingCustomMask) togglePlay();
-          }}
-        />
-        {drawingCustomMask && canvasBox.width > 0 ? (
-          <svg
-            className="absolute z-10 touch-none select-none"
-            style={{
-              left: canvasBox.left,
-              top: canvasBox.top,
-              width: canvasBox.width,
-              height: canvasBox.height,
-              cursor: "crosshair",
-            }}
-            viewBox={`0 0 ${canvasBox.width} ${canvasBox.height}`}
-            preserveAspectRatio="none"
-            role="application"
-            aria-label={t("Draw the custom mask on the preview")}
-            onPointerDown={startMaskDrawing}
-            onPointerMove={extendMaskDrawing}
-            onPointerUp={finishMaskDrawing}
-            onPointerCancel={finishMaskDrawing}
-          >
-            <rect width={canvasBox.width} height={canvasBox.height} fill="transparent" />
-            {selectedClip?.maskPoints && selectedClip.maskPoints.length >= 3 ? (
-              <polygon
-                points={maskOverlayPoints(selectedClip.maskPoints)}
-                fill="rgba(167, 139, 250, 0.14)"
-                stroke="#a78bfa"
-                strokeWidth={1.5}
-                strokeDasharray="5 4"
-                vectorEffect="non-scaling-stroke"
-              />
-            ) : null}
-            {draftMaskPoints.length >= 2 ? (
-              <polygon
-                points={maskOverlayPoints(draftMaskPoints)}
-                fill="rgba(167, 139, 250, 0.18)"
-                stroke="#c4b5fd"
-                strokeWidth={2}
-                vectorEffect="non-scaling-stroke"
-              />
-            ) : null}
-          </svg>
-        ) : null}
-        {drawingCustomMask ? (
-          <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/70 px-3 py-1.5 text-[10.5px] text-white/80 ring-1 ring-white/10">
-            {t("Drag on the preview to draw the mask")}
-          </div>
-        ) : null}
-        {project && project.tracks.every((track) => track.clips.length === 0) ? (
-          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
-              <Play size={18} className="text-white/60" />
-            </div>
-            <p className="text-[12px] font-medium text-white/80">{t("Your preview is empty")}</p>
-            <p className="max-w-[250px] text-[11px] leading-relaxed text-white/60">
-              {t("Import media, then add a clip to the timeline to see it here.")}
-            </p>
-          </div>
-        ) : null}
-        <div ref={hiddenRef} className="pointer-events-none absolute left-[-99999px] top-0 h-px w-px overflow-hidden opacity-0" />
-      </div>
+      <PreviewStage
+        project={project}
+        currentTime={currentTime}
+        fps={fps}
+        stageRef={stageRef}
+        canvasRef={canvasRef}
+        hiddenRef={hiddenRef}
+        canvasBox={canvasBox}
+        drawingCustomMask={drawingCustomMask}
+        selectedClip={selectedClip}
+        draftMaskPoints={draftMaskPoints}
+        maskOverlayPoints={maskOverlayPoints}
+        onStartMask={startMaskDrawing}
+        onExtendMask={extendMaskDrawing}
+        onFinishMask={finishMaskDrawing}
+        onTogglePlay={togglePlay}
+      />
 
-      <div className="relative flex h-[52px] shrink-0 items-center justify-between gap-3 border-t border-line-soft bg-panel px-4">
-        <div className="flex w-[180px] items-center gap-1">
-          <button className="btn btn-ghost btn-icon btn-sm" onClick={() => step(-1)} title={t("Previous frame")} aria-label={t("Previous frame")}>
-            <SkipBack size={14} aria-hidden="true" />
-          </button>
-          <button
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-surface transition hover:bg-white"
-            onClick={togglePlay}
-            title={playing ? t("Pause (Space)") : t("Play (Space)")}
-            aria-label={playing ? t("Pause") : t("Play")}
-            aria-pressed={playing}
-          >
-            {playing ? <Pause size={14} fill="currentColor" aria-hidden="true" /> : <Play size={14} fill="currentColor" className="ml-0.5" aria-hidden="true" />}
-          </button>
-          <button className="btn btn-ghost btn-icon btn-sm" onClick={() => step(1)} title={t("Next frame")} aria-label={t("Next frame")}>
-            <SkipForward size={14} aria-hidden="true" />
-          </button>
-          <button
-            className="btn btn-ghost btn-icon btn-sm"
-            onClick={() => {
-              setPlaying(false);
-              setCurrentTime(0);
-            }}
-            title={t("Go to start")}
-            aria-label={t("Go to the start of the timeline")}
-          >
-            <Square size={12} aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-2 font-mono text-[11.5px] tracking-tight">
-          <span className="text-ink">{formatClock(currentTime, fps)}</span>
-          <span className="text-dim/70" aria-hidden="true">/</span>
-          <span className="text-dim">{formatClock(duration, fps)}</span>
-        </div>
-
-      </div>
+      <PreviewTransport
+        playing={playing}
+        currentTime={currentTime}
+        duration={duration}
+        fps={fps}
+        onTogglePlay={togglePlay}
+        onStep={step}
+        onGoToStart={() => {
+          setPlaying(false);
+          setCurrentTime(0);
+        }}
+      />
     </section>
   );
 }
