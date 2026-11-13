@@ -53,11 +53,15 @@ function Check {
 }
 
 function Find-SevenZip {
+    # The known install locations come first. `Get-Command 7z` alone is not
+    # enough: unrelated programs ship a file called `7z.exe`, and an old
+    # 7-Zip cannot list the cab inside a modern MSI.
     $candidates = @(
-        (Get-Command 7z -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),
-        "$env:USERPROFILE\scoop\apps\7zip\current\7z.exe",
         "$env:ProgramFiles\7-Zip\7z.exe",
-        "${env:ProgramFiles(x86)}\7-Zip\7z.exe"
+        "${env:ProgramFiles(x86)}\7-Zip\7z.exe",
+        "$env:LOCALAPPDATA\Programs\7-Zip\7z.exe",
+        "$env:USERPROFILE\scoop\apps\7zip\current\7z.exe",
+        (Get-Command 7z.exe, 7z -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue)
     )
     return $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 }
@@ -75,10 +79,27 @@ Check (@($staged | Where-Object { $_.Name -match '^ffmpeg' }).Count -gt 0) "ffmp
 Check (@($staged | Where-Object { $_.Name -match '^ffprobe' }).Count -gt 0) "ffprobe is staged next to the app"
 
 # 2. Both installer formats should exist.
-$nsis = @(Get-ChildItem -Path (Join-Path $BundleDir "nsis") -Filter "*.exe" -File -ErrorAction SilentlyContinue)
-$msi = @(Get-ChildItem -Path (Join-Path $BundleDir "msi") -Filter "*.msi" -File -ErrorAction SilentlyContinue)
-Check ($nsis.Count -gt 0) "NSIS installer artifact exists"
-Check ($msi.Count -gt 0) "MSI installer artifact exists"
+#
+# Only the artifacts of the version that was just built are verified. The
+# bundle directory keeps files from earlier builds, and a check that picked
+# the wrong one would report a pass for something that was never shipped.
+$version = ""
+try {
+    $package = Get-Content (Join-Path $root "package.json") -Raw | ConvertFrom-Json
+    if ($package.PSObject.Properties.Name -contains "version") {
+        $version = [string]$package.version
+    }
+} catch {
+    Write-Host "Could not read the version from package.json; verifying every artifact." -ForegroundColor Yellow
+}
+
+$nsisAll = @(Get-ChildItem -Path (Join-Path $BundleDir "nsis") -Filter "*.exe" -File -ErrorAction SilentlyContinue)
+$msiAll = @(Get-ChildItem -Path (Join-Path $BundleDir "msi") -Filter "*.msi" -File -ErrorAction SilentlyContinue)
+$nsis = if ($version) { @($nsisAll | Where-Object { $_.Name -like "*_${version}_*" }) } else { $nsisAll }
+$msi = if ($version) { @($msiAll | Where-Object { $_.Name -like "*_${version}_*" }) } else { $msiAll }
+
+Check ($nsis.Count -gt 0) "NSIS installer artifact exists for version $version"
+Check ($msi.Count -gt 0) "MSI installer artifact exists for version $version"
 
 if ($nsis.Count -gt 0) {
     Write-Host "NSIS: $($nsis[0].FullName)"

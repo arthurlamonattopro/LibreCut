@@ -40,9 +40,12 @@ jobs:
             src-tauri/binaries
             src-tauri/legal/FFMPEG-BUILD-INFO.txt
             src-tauri/legal/FFMPEG-BUILD-LICENSE.txt
-          key: ffmpeg-essentials-${{ hashFiles('scripts/fetch-ffmpeg.ps1') }}
+          key: ffmpeg-9.0.1-${{ hashFiles('scripts/fetch-ffmpeg.ps1') }}
       - name: Fetch FFmpeg sidecars
         run: ./scripts/fetch-ffmpeg.ps1
+        shell: pwsh
+      - name: Check the bundled FFmpeg
+        run: ./src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe -version
         shell: pwsh
       - run: cargo fmt --check
         working-directory: src-tauri

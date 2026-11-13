@@ -30,14 +30,26 @@ app and is **not** covered by LibreCut's GPL-3.0 license.
 
 - Release builds bundle `ffmpeg.exe` and `ffprobe.exe` as Tauri sidecars next to
   the app. Development builds can use the same sidecars or a system FFmpeg.
-- `scripts/fetch-ffmpeg.ps1` downloads the Windows build from
-  <https://www.gyan.dev/ffmpeg/builds/>, verifies its SHA-256 checksum, and
+- `scripts/fetch-ffmpeg.ps1` downloads the pinned Windows build from
+  <https://github.com/GyanD/codexffmpeg/releases> (mirrored from
+  <https://www.gyan.dev/ffmpeg/builds/>), verifies its SHA-256 checksum, and
   records the build information in `src-tauri/legal/FFMPEG-BUILD-INFO.txt`.
-  It uses the matching GitHub release asset when available and falls back to
-  gyan.dev.
-- The fetched build enables GPL components (`libx264`, `libfreetype`, etc.), so
-  it is distributed under GPLv3. The GPLv3 text is included at
-  `src-tauri/legal/FFMPEG-GPLv3.txt`.
+- The bundled build is **FFmpeg 9.0.1**, the essentials GPL build. The version
+  and its checksum are pinned in the fetch script. FFmpeg 9.0.2 and later
+  deadlock on the export filter graph of a timeline that contains a
+  transition, so the version is part of the correctness of the release, not
+  only a detail of provenance.
+- The essentials build carries every filter, codec, and encoder LibreCut uses.
+  The full build is also available with `-Variant full` and adds the encoders
+  and filters LibreCut does not use; it is about 230 MB larger.
+- The macOS sidecars come from <https://evermeet.cx/> and are pinned to the
+  same version. The Linux sidecars come from
+  <https://johnvansickle.com/ffmpeg/> and are checked against the same
+  version ceiling after the download. Neither provider publishes a reduced
+  variant, so only the Windows build is size-optimised.
+- The fetched build enables GPL components (`libx264`, `libx265`,
+  `libfreetype`, `libass`, etc.), so it is distributed under GPLv3. The GPLv3
+  text is included at `src-tauri/legal/FFMPEG-GPLv3.txt`.
 - A redistributed installer must keep `THIRD_PARTY_LICENSES.md`, `PRIVACY.md`,
   `LICENSE`, the FFmpeg license text, and the source offer, and must provide
   the corresponding FFmpeg source for at least three years.
