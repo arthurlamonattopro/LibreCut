@@ -1,14 +1,299 @@
 <!doctype html>
-<html lang="en" class="dark">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#101114" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>LibreCut</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LibreCut — Free, open-source, local-first video editor</title>
+<meta name="description" content="Download LibreCut 1.0.0: a free, open-source video editor. No account, no watermark, no telemetry. Windows installers, plus macOS and Linux preview builds.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2322252b'/%3E%3Cpath d='M14 15h8v27h9v7H14V15Z' fill='%2336c8d0'/%3E%3Cpath d='M51 17v8c-3.2-2.8-5.8-3.8-9.3-2.8-4.2 1.2-6.7 4.8-6.7 9.8 0 5 2.5 8.6 6.7 9.8 3.5 1 6.1 0 9.3-2.8v8c-3.5 2.4-7.8 3.2-12.1 1.8C31.4 46.7 27 40.8 27 32s4.4-14.7 11.9-16.8c4.3-1.4 8.6-.6 12.1 1.8Z' fill='%23f5f6f7'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #101114;
+    --surface: #17191d;
+    --surface-2: #1e2127;
+    --line: #2b2f37;
+    --text: #f5f6f7;
+    --muted: #a3a9b4;
+    --accent: #36c8d0;
+    --accent-ink: #06272a;
+    --warn: #e8b24a;
+    --ok: #5fd08a;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:hover { text-decoration-thickness: 2px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+  .wrap { width: min(1040px, 100% - 32px); margin-inline: auto; }
+
+  header.top { padding: 20px 0; border-bottom: 1px solid var(--line); }
+  .top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 18px; color: var(--text); text-decoration: none; }
+  .brand svg { width: 34px; height: 34px; }
+  nav { display: flex; gap: 20px; font-size: 14px; }
+  nav a { color: var(--muted); text-decoration: none; }
+  nav a:hover { color: var(--text); }
+
+  .hero { padding: 72px 0 48px; }
+  .eyebrow { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; color: var(--accent); background: rgba(54,200,208,.1); border: 1px solid rgba(54,200,208,.3); padding: 4px 12px; border-radius: 999px; margin-bottom: 20px; }
+  h1 { font-size: clamp(34px, 6vw, 58px); line-height: 1.08; letter-spacing: -0.02em; margin: 0 0 18px; max-width: 16ch; }
+  .lead { font-size: clamp(17px, 2.2vw, 20px); color: var(--muted); max-width: 58ch; margin: 0 0 28px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .btn { display: inline-flex; align-items: center; gap: 10px; padding: 13px 22px; border-radius: 10px; font-weight: 600; text-decoration: none; border: 1px solid var(--line); color: var(--text); background: var(--surface-2); transition: transform .15s ease, border-color .15s ease; }
+  .btn:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn svg { width: 18px; height: 18px; flex: none; }
+  .cta-note { color: var(--muted); font-size: 14px; margin-top: 14px; }
+
+  .pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
+  .pill { font-size: 13px; color: var(--muted); border: 1px solid var(--line); background: var(--surface); padding: 4px 12px; border-radius: 999px; }
+
+  section { padding: 48px 0; border-top: 1px solid var(--line); }
+  h2 { font-size: 26px; letter-spacing: -0.01em; margin: 0 0 8px; }
+  .sub { color: var(--muted); margin: 0 0 28px; max-width: 64ch; }
+
+  .platforms { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; display: flex; flex-direction: column; gap: 10px; }
+  .card.match { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .card h3 { margin: 0; font-size: 18px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .tag { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+  .tag.ok { color: var(--ok); background: rgba(95,208,138,.12); border: 1px solid rgba(95,208,138,.35); }
+  .tag.preview { color: var(--warn); background: rgba(232,178,74,.12); border: 1px solid rgba(232,178,74,.35); }
+  .card p { margin: 0; color: var(--muted); font-size: 14.5px; }
+  .card .files { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; color: var(--text); }
+  .card .btn { margin-top: auto; justify-content: center; }
+  .you { display: none; font-size: 12px; color: var(--accent); font-weight: 600; }
+  .card.match .you { display: inline; }
+
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .feature { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
+  .feature h3 { margin: 0 0 6px; font-size: 16px; }
+  .feature p { margin: 0; color: var(--muted); font-size: 14.5px; }
+
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px; }
+  ul.plain { margin: 0; padding-left: 20px; color: var(--muted); }
+  ul.plain li { margin-bottom: 6px; }
+  ul.plain strong { color: var(--text); }
+  .notice { background: rgba(232,178,74,.08); border: 1px solid rgba(232,178,74,.3); border-radius: var(--radius); padding: 16px 20px; color: var(--text); font-size: 15px; }
+  .notice strong { color: var(--warn); }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; background: var(--surface-2); border: 1px solid var(--line); padding: 1px 6px; border-radius: 6px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; width: 34%; }
+
+  footer { border-top: 1px solid var(--line); padding: 32px 0 56px; color: var(--muted); font-size: 14px; }
+  footer .wrap { display: grid; gap: 10px; }
+  footer .links { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+
+  @media (max-width: 560px) {
+    nav { display: none; }
+    .hero { padding-top: 48px; }
+    .btn { width: 100%; justify-content: center; }
+  }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .btn { transition: none; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top" id="top">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#22252b"/><path d="M14 15h8v27h9v7H14V15Z" fill="#36c8d0"/><path d="M51 17v8c-3.2-2.8-5.8-3.8-9.3-2.8-4.2 1.2-6.7 4.8-6.7 9.8 0 5 2.5 8.6 6.7 9.8 3.5 1 6.1 0 9.3-2.8v8c-3.5 2.4-7.8 3.2-12.1 1.8C31.4 46.7 27 40.8 27 32s4.4-14.7 11.9-16.8c4.3-1.4 8.6-.6 12.1 1.8Z" fill="#f5f6f7"/></svg>
+      LibreCut
+    </a>
+    <nav aria-label="Page sections">
+      <a href="#download">Download</a>
+      <a href="#features">Features</a>
+      <a href="#requirements">Requirements</a>
+      <a href="#privacy">Privacy</a>
+      <a href="https://github.com/arthurlamonattopro/LibreCut">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="hero">
+      <span class="eyebrow">Version 1.0.0 · GPL-3.0</span>
+      <h1>Cut video on your own machine.</h1>
+      <p class="lead">LibreCut is a free, open-source, local-first video editor. Import media, edit a multi-track timeline, add effects, titles and music, then export an MP4 with FFmpeg. No account, no watermark, no telemetry.</p>
+      <div class="cta">
+        <a class="btn primary" id="main-download" href="https://github.com/arthurlamonattopro/LibreCut/releases/latest">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4.5-4.5M12 15l-4.5-4.5M4 20h16"/></svg>
+          <span id="main-download-label">Download LibreCut</span>
+        </a>
+        <a class="btn" href="https://github.com/arthurlamonattopro/LibreCut">View source on GitHub</a>
+      </div>
+      <p class="cta-note" id="os-note">Installers are published on the GitHub Releases page.</p>
+      <div class="pills" aria-label="Highlights">
+        <span class="pill">No account</span>
+        <span class="pill">No watermark</span>
+        <span class="pill">No telemetry</span>
+        <span class="pill">Works offline</span>
+        <span class="pill">English · Español · Português (BR)</span>
+      </div>
+    </div>
+  </div>
+
+  <section id="download">
+    <div class="wrap">
+      <h2>Download</h2>
+      <p class="sub">Every button opens the latest LibreCut release on GitHub. Pick the file that matches your system from the assets list.</p>
+
+      <div class="platforms">
+        <article class="card" data-os="windows">
+          <h3>Windows 10 / 11 <span class="tag ok">Verified</span></h3>
+          <span class="you">Detected: your system</span>
+          <p>The development platform. Installers are built and checked to contain FFmpeg and the license notices.</p>
+          <p class="files">NSIS setup (.exe) · MSI (.msi)</p>
+          <p>Needs the WebView2 Evergreen runtime, installed by default on current Windows.</p>
+          <a class="btn primary" href="https://github.com/arthurlamonattopro/LibreCut/releases/latest">Get the Windows installer</a>
+        </article>
+
+        <article class="card" data-os="mac">
+          <h3>macOS (Intel) <span class="tag preview">Preview</span></h3>
+          <span class="you">Detected: your system</span>
+          <p>A DMG is built by the release workflow, but install, launch, editing and export are not verified yet.</p>
+          <p class="files">Disk image (.dmg)</p>
+          <a class="btn" href="https://github.com/arthurlamonattopro/LibreCut/releases/latest">Get the macOS build</a>
+        </article>
+
+        <article class="card" data-os="linux">
+          <h3>Linux (Ubuntu 22.04 x64) <span class="tag preview">Preview</span></h3>
+          <span class="you">Detected: your system</span>
+          <p>DEB and AppImage packages are built by the release workflow, but they are not verified end to end yet.</p>
+          <p class="files">Debian package (.deb) · AppImage</p>
+          <a class="btn" href="https://github.com/arthurlamonattopro/LibreCut/releases/latest">Get the Linux build</a>
+        </article>
+      </div>
+
+      <p class="sub" style="margin-top:24px">
+        Prefer to build it yourself? Download the
+        <a href="https://github.com/arthurlamonattopro/LibreCut/archive/refs/tags/v1.0.0.zip">v1.0.0 source (.zip)</a>
+        or clone the repository, then run <code>pnpm install</code> and <code>pnpm tauri dev</code>. You need Node.js 22+, pnpm 10+, Rust 1.77+ and FFmpeg 9.x.
+      </p>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>What you can do</h2>
+      <p class="sub">An early-stage editor built for fast, everyday cuts.</p>
+      <div class="features">
+        <div class="feature"><h3>Multi-track timeline</h3><p>Video, audio, text and effect tracks, a magnetic main track, ripple edits, snapping, split, trim and undo/redo.</p></div>
+        <div class="feature"><h3>Effects and transitions</h3><p>Color adjustments, masks, blur, vignette, <code>.cube</code> LUTs, keyframes, speed ramps and every transition FFmpeg's <code>xfade</code> supports.</p></div>
+        <div class="feature"><h3>Audio tools</h3><p>Ducking, EQ, panning, compression, per-track volume, automation curves and per-clip fades.</p></div>
+        <div class="feature"><h3>Titles and captions</h3><p>Styled text with animation presets, plus <code>.srt</code> and <code>.vtt</code> import and <code>.srt</code> export.</p></div>
+        <div class="feature"><h3>Local AI</h3><p>Captions, speech generation and image background removal on your machine. Models download on first use or install as offline bundles.</p></div>
+        <div class="feature"><h3>H.264 / AAC export</h3><p>MP4 export with size presets, NVENC or CPU encoding, progress and cancellation. A cancelled export leaves no partial file.</p></div>
+        <div class="feature"><h3>Plugins and presets</h3><p>Declarative effect-pack plugins and a community preset pack of color filters and text styles under CC0-1.0.</p></div>
+        <div class="feature"><h3>Templates and projects</h3><p>Built-in and custom templates, autosave, and crash-safe <code>.librecut</code> project copies with a <code>.bak</code> backup.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="requirements">
+    <div class="wrap">
+      <h2>Requirements and good to know</h2>
+      <p class="sub">Taken from the project's own documentation.</p>
+      <div class="two">
+        <div>
+          <table>
+            <tr><th>Operating system</th><td>Windows 10/11 (verified). macOS Intel and Ubuntu 22.04 x64 are previews.</td></tr>
+            <tr><th>FFmpeg</th><td>Bundled with the installers (9.0.1, essentials build). Nothing to install separately.</td></tr>
+            <tr><th>Disk space</th><td>Roughly 4 GB for the app, FFmpeg, proxy cache and models.</td></tr>
+            <tr><th>Import formats</th><td>mp4, m4v, mov, webm, mkv, avi; mp3, wav, m4a, aac, flac, ogg; png, jpg, jpeg, webp, bmp, gif, avif.</td></tr>
+            <tr><th>Export</th><td>MP4 with H.264 video and AAC audio.</td></tr>
+          </table>
+        </div>
+        <div>
+          <ul class="plain">
+            <li>Only the <strong>first video and audio stream</strong> of each file is used.</li>
+            <li>Portrait <strong>rotation metadata is not applied</strong> to the picture; rotate the clip in the inspector.</li>
+            <li>The preview and the export are <strong>two renderers</strong>, so scaling, color and fonts can differ slightly.</li>
+            <li>If you use your own FFmpeg, keep it at <strong>9.0.1 or older</strong>: 9.0.2 and later hang on timelines with a transition.</li>
+          </ul>
+          <p style="margin-top:16px"><a href="https://github.com/arthurlamonattopro/LibreCut/blob/main/docs/known-limitations.md">Read the full list of known limitations</a></p>
+        </div>
+      </div>
+      <div class="notice" style="margin-top:28px">
+        <strong>Early-stage software.</strong> LibreCut 1.0.0 is dependable on Windows, but expect rough edges. The macOS and Linux packages exist and still need hands-on verification on supported systems.
+      </div>
+    </div>
+  </section>
+
+  <section id="privacy">
+    <div class="wrap">
+      <h2>Privacy and license</h2>
+      <div class="two" style="margin-top:20px">
+        <div>
+          <h3 style="margin:0 0 8px">Local-first</h3>
+          <ul class="plain">
+            <li>Your media never leaves your computer.</li>
+            <li>No analytics, accounts or cloud dependency.</li>
+            <li>Update checks are <strong>off by default</strong>. If you turn them on, they contact this project's GitHub Releases only.</li>
+            <li>Local AI models contact Hugging Face only when a model is missing and <em>Strict offline</em> is off.</li>
+          </ul>
+          <p style="margin-top:12px"><a href="https://github.com/arthurlamonattopro/LibreCut/blob/main/PRIVACY.md">Read PRIVACY.md</a></p>
+        </div>
+        <div>
+          <h3 style="margin:0 0 8px">Open source</h3>
+          <ul class="plain">
+            <li>LibreCut is licensed under <strong>GPL-3.0-only</strong>.</li>
+            <li>FFmpeg is a separate executable under its own license; the bundled build is GPL-enabled.</li>
+            <li>LibreCut is an independent project and is not affiliated with CapCut or ByteDance.</li>
+          </ul>
+          <p style="margin-top:12px">
+            <a href="https://github.com/arthurlamonattopro/LibreCut/blob/main/LICENSE">LICENSE</a> ·
+            <a href="https://github.com/arthurlamonattopro/LibreCut/blob/main/THIRD_PARTY_LICENSES.md">Third-party licenses</a>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="links">
+      <a href="https://github.com/arthurlamonattopro/LibreCut">Repository</a>
+      <a href="https://github.com/arthurlamonattopro/LibreCut/releases">All releases</a>
+      <a href="https://github.com/arthurlamonattopro/LibreCut/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/arthurlamonattopro/LibreCut/tree/main/docs/tutorials">Tutorials</a>
+      <a href="https://github.com/arthurlamonattopro/LibreCut/issues">Report a bug</a>
+    </div>
+    <div>LibreCut 1.0.0 · GPL-3.0-only</div>
+  </div>
+</footer>
+
+<script>
+  // Progressive enhancement: highlight the card that matches the visitor's system.
+  (function () {
+    try {
+      var ua = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || "";
+      ua = ua.toLowerCase();
+      var os = /win/.test(ua) ? "windows" : /mac/.test(ua) ? "mac" : /linux|x11/.test(ua) && !/android/.test(ua) ? "linux" : "";
+      if (!os) return;
+      var names = { windows: "Windows", mac: "macOS", linux: "Linux" };
+      var card = document.querySelector('.card[data-os="' + os + '"]');
+      if (card) card.classList.add("match");
+      document.getElementById("main-download-label").textContent = "Download for " + names[os];
+      var note = document.getElementById("os-note");
+      note.textContent = os === "windows"
+        ? "Windows is the verified platform. Choose the .exe or .msi installer on the Releases page."
+        : "The " + names[os] + " build is a preview and has not been verified end to end yet.";
+    } catch (e) { /* the page works without this */ }
+  })();
+</script>
+</body>
 </html>
