@@ -39,21 +39,26 @@ sha256_of() {
 # Refuses a runtime that cannot render an export with a transition.
 assert_supported_version() {
   local binary="$1"
-  local version
+  local version release
   version="$("$binary" -version 2>/dev/null | head -n 1 | sed -n 's/^ffmpeg version \([^ ]*\).*/\1/p')"
   if [[ -z "$version" ]]; then
     echo "Could not read the FFmpeg version of $binary" >&2
     exit 1
   fi
-  if [[ ! "$version" =~ ^[0-9]+\.[0-9]+ ]]; then
+  # A build may carry a suffix, such as "9.0.1-tessus" or "7.0.2-static".
+  # Only the release number decides, because that is what the deadlock window
+  # was fixed in.
+  release="$(printf '%s' "$version" | sed -E 's/^([0-9]+(\.[0-9]+)*).*/\1/')"
+  if [[ ! "$release" =~ ^[0-9]+\.[0-9]+ ]]; then
     echo "FFmpeg $version is not a release build. LibreCut needs a release of $newest_supported or older." >&2
     exit 1
   fi
-  if [[ "$(printf '%s\n%s\n' "$newest_supported" "$version" | sort -V | tail -n 1)" != "$newest_supported" ]]; then
+  if [[ "$(printf '%s\n%s\n' "$newest_supported" "$release" | sort -V | tail -n 1)" != "$newest_supported" ]]; then
     echo "FFmpeg $version is newer than $newest_supported and deadlocks on the export graph of a timeline with a transition." >&2
     echo "Pin an older FFmpeg build before packaging a release." >&2
     exit 1
   fi
+  echo "FFmpeg $version is supported."
 }
 
 case "$(uname -s)" in
