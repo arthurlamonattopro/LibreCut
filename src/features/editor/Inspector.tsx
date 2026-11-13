@@ -306,7 +306,7 @@ export function Inspector({ width = 280 }: { width?: number }) {
   const updateClip = useEditor((state) => state.updateClip);
   const updateTrack = useEditor((state) => state.updateTrack);
   const recordSnapshot = useEditor((state) => state.recordSnapshot);
-  const duplicateClip = useEditor((state) => state.duplicateClip);
+  const duplicateSelected = useEditor((state) => state.duplicateSelected);
   const deleteSelected = useEditor((state) => state.deleteSelected);
   const splitAtPlayhead = useEditor((state) => state.splitAtPlayhead);
   const extractAudio = useEditor((state) => state.extractAudio);
@@ -331,7 +331,7 @@ export function Inspector({ width = 280 }: { width?: number }) {
             onUpdate={(patch, record) => updateClip(clip.id, patch, record)}
             onUpdateTrack={(patch, record) => updateTrack(track.id, patch, record)}
             onRecord={recordSnapshot}
-            onDuplicate={() => duplicateClip(clip.id)}
+            onDuplicate={() => duplicateSelected()}
             onDelete={deleteSelected}
             onSplit={splitAtPlayhead}
             onExtractAudio={() => extractAudio(clip.id)}

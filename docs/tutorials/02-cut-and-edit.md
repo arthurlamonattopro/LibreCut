@@ -182,7 +182,8 @@ video and text clips, and **Fade in** and **Fade out** for every clip.
 | --- | --- |
 | `Space` | Play or pause |
 | `S` | Split at the playhead |
-| `Delete` | Delete the selected clip |
+| `Delete` | Delete the selected clips |
+| `Ctrl+A` | Select every clip |
 | `Ctrl+Z` / `Ctrl+Y` | Undo and redo |
 | `Ctrl+D` | Duplicate the selected clip |
 | `Ctrl+S` | Save a `.librecut` copy of the project |
@@ -206,18 +207,22 @@ Then add a color filter over the last clip only, and watch the preview.
 
 ## Gotchas
 
-- **There is no multi-select.** One clip at a time, and every action applies
-  to that one clip.
-- **The main track rearranges itself.** After a move, a trim, or a delete, a
-  clip can end up somewhere you did not expect. Put anything that has to stay
-  put on a second track.
-- **Ripple moves clips on every track**, not just the one you edited.
-- **Dropping a clip on another track takes two undos** to undo. Press
-  `Ctrl+Z` twice.
-- **Tracks cannot be deleted or reordered.** They can be muted, hidden,
-  locked, and made magnetic.
-- **The timeline does not follow the playhead.** After a long edit, scroll to
-  find it.
+- **Multi-select works with the usual modifiers.** `Ctrl`-click adds or removes
+  a clip, `Shift`-click selects a range, and dragging on empty timeline space
+  draws a rubber band. Bulk delete, duplicate, split, and move apply to the
+  whole selection.
+- **The main track is explicit.** Make a video track magnetic from its header
+  if you want clips packed in order when they are inserted, split, or
+  duplicated. Ordinary moves, trims, and deletes leave it alone unless
+  **Ripple** is on.
+- **Ripple stays on the edited track**, so a cut on a video track does not pull
+  the audio or titles with it.
+- **Clips cannot overlap.** If a move or trim would cross a neighbour, the clip
+  settles into the nearest free gap.
+- **Tracks can be deleted and reordered** from the track actions menu. Locked
+  tracks cannot be deleted.
+- **The timeline follows the playhead**, so it scrolls back to the edit point
+  after a long jump or during playback.
 - **`Space` does not start playback when a button has focus** — the button is
   pressed instead. Click on empty timeline space first.
 

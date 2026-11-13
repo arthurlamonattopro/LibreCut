@@ -1,5 +1,7 @@
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   AudioWaveform,
   ChevronsRight,
   Copy,
@@ -50,6 +52,9 @@ export function TimelineContextMenu({
   const ripple = useEditor((state) => state.ripple);
   const updateTrack = useEditor((state) => state.updateTrack);
   const setMagneticTrack = useEditor((state) => state.setMagneticTrack);
+  const moveTrackUp = useEditor((state) => state.moveTrackUp);
+  const moveTrackDown = useEditor((state) => state.moveTrackDown);
+  const deleteTrack = useEditor((state) => state.deleteTrack);
   const addTrack = useEditor((state) => state.addTrack);
   const addEffectClip = useEditor((state) => state.addEffectClip);
   const splitAtPlayhead = useEditor((state) => state.splitAtPlayhead);
@@ -135,8 +140,27 @@ export function TimelineContextMenu({
             disabled={!menuClipAtPlayhead}
             onClick={() => runMenuAction(splitAtPlayhead)}
           />
-          <MenuRow icon={Copy} label={t("Duplicate clip")} shortcut="Ctrl+D" onClick={() => runMenuAction(() => useEditor.getState().duplicateClip(menuClip.id))} />
-          <MenuRow icon={Trash2} label={t("Delete clip")} shortcut="Del" danger onClick={() => runMenuAction(() => useEditor.getState().deleteClip(menuClip.id))} />
+          <MenuRow
+            icon={Copy}
+            label={t("Duplicate clip")}
+            shortcut="Ctrl+D"
+            onClick={() => runMenuAction(() => {
+              const state = useEditor.getState();
+              if (state.selectedClipIds.includes(menuClip.id) && state.selectedClipIds.length > 1) state.duplicateSelected();
+              else state.duplicateClip(menuClip.id);
+            })}
+          />
+          <MenuRow
+            icon={Trash2}
+            label={t("Delete clip")}
+            shortcut="Del"
+            danger
+            onClick={() => runMenuAction(() => {
+              const state = useEditor.getState();
+              if (state.selectedClipIds.includes(menuClip.id) && state.selectedClipIds.length > 1) state.deleteSelected();
+              else state.deleteClip(menuClip.id);
+            })}
+          />
 
           <MenuLabel>{t("Speed")}</MenuLabel>
           <MenuRow
@@ -236,6 +260,15 @@ export function TimelineContextMenu({
           }))}
         />
       ) : null}
+      <MenuRow icon={ArrowUp} label={t("Move track up")} onClick={() => runMenuAction(() => moveTrackUp(menuTrack.id))} />
+      <MenuRow icon={ArrowDown} label={t("Move track down")} onClick={() => runMenuAction(() => moveTrackDown(menuTrack.id))} />
+      <MenuRow
+        icon={Trash2}
+        label={t("Delete track")}
+        danger
+        disabled={menuTrack.locked}
+        onClick={() => runMenuAction(() => deleteTrack(menuTrack.id))}
+      />
 
       <MenuLabel>{t("Add")}</MenuLabel>
       <MenuRow icon={Film} label={t("Video track")} onClick={() => runMenuAction(() => addTrack("video"))} />

@@ -2,7 +2,15 @@ import { produce } from "immer";
 import { create } from "zustand";
 import type { Asset, AudioCompressor, Clip, ColorEffectOptions, LutSettings, Project, TextOptions, Track, TrackKind } from "../lib/types";
 import { clamp, cachedProjectDuration } from "../lib/time";
-import { compactMagneticTrack, findClip, removeClip, rippleTrimEnd, rippleTrimStart, settleMagneticTracks } from "../lib/timeline";
+import {
+  compactMagneticTrack,
+  findClip,
+  findFreeStart,
+  neighborBounds,
+  removeClips,
+  rippleTrimEnd,
+  rippleTrimStart,
+} from "../lib/timeline";
 import { sliceSpeedRamp } from "../lib/speed";
 import {
   DEFAULT_BASS_FREQUENCY,
@@ -21,11 +29,37 @@ export type ClipPatch = Omit<Partial<Clip>, "text" | "effect" | "compressor" | "
   lut?: LutSettings;
 };
 
+/** Everything that an undo step restores, not only the project document. */
+export interface EditorSnapshot {
+  project: Project;
+  selectedClipIds: string[];
+  selectedClipId: string | null;
+  selectionAnchorId: string | null;
+  currentTime: number;
+  zoom: number;
+  snap: boolean;
+  ripple: boolean;
+}
+
+export interface SelectClipOptions {
+  /** Ctrl/Cmd-click: add the clip, or remove it when it is already selected. */
+  additive?: boolean;
+  /** Shift-click: select the range from the anchor to this clip. */
+  range?: boolean;
+  /** The track that owns the clicked clip, used for range selection. */
+  trackId?: string;
+}
+
 interface EditorState {
   project: Project | null;
   currentTime: number;
   playing: boolean;
+  /** The primary selection, kept for the inspector and the preview. */
   selectedClipId: string | null;
+  /** Every selected clip. */
+  selectedClipIds: string[];
+  /** The clip a Shift-click range grows from. */
+  selectionAnchorId: string | null;
   zoom: number;
   snap: boolean;
   ripple: boolean;
@@ -37,8 +71,8 @@ interface EditorState {
    * number changes.
    */
   mediaRevision: number;
-  undoStack: Project[];
-  redoStack: Project[];
+  undoStack: EditorSnapshot[];
+  redoStack: EditorSnapshot[];
 
   openProject: (project: Project) => void;
   closeProject: () => void;
@@ -52,15 +86,28 @@ interface EditorState {
   importSubtitleCues: (cues: Array<{ start: number; end: number; text: string }>) => void;
   addEffectClip: (preset?: { name: string; effect: Partial<ColorEffectOptions> }, at?: number) => void;
   addTrack: (kind: TrackKind) => void;
+  deleteTrack: (trackId: string) => void;
+  moveTrack: (trackId: string, direction: 1 | -1) => void;
+  moveTrackUp: (trackId: string) => void;
+  moveTrackDown: (trackId: string) => void;
+  reorderTrack: (trackId: string, targetIndex: number) => void;
   moveClipToTrack: (clipId: string, trackId: string) => void;
+  moveClipsToTrack: (clipIds: string[], trackId: string, record?: boolean) => void;
   updateClip: (clipId: string, patch: ClipPatch, record?: boolean) => void;
   trimClip: (clipId: string, edge: "start" | "end", time: number) => void;
   splitClip: (clipId: string, time: number) => void;
   splitAtPlayhead: () => void;
   duplicateClip: (clipId: string) => void;
+  duplicateSelected: () => void;
   deleteClip: (clipId: string) => void;
+  deleteClips: (clipIds: string[]) => void;
   deleteSelected: () => void;
-  selectClip: (clipId: string | null) => void;
+  selectClip: (clipId: string | null, options?: boolean | SelectClipOptions) => void;
+  setClipSelection: (clipIds: string[]) => void;
+  selectClips: (clipIds: string[]) => void;
+  toggleClipSelection: (clipId: string) => void;
+  selectClipRange: (clipId: string, trackId?: string, additive?: boolean) => void;
+  selectAll: () => void;
   updateTrack: (trackId: string, patch: Partial<Track>, record?: boolean) => void;
   setCurrentTime: (time: number) => void;
   setPlaying: (playing: boolean) => void;
@@ -69,6 +116,10 @@ interface EditorState {
   toggleRipple: () => void;
   setMagneticTrack: (trackId: string | null) => void;
   settleMagneticTrack: (trackId: string) => void;
+  /** Applies absolute starts to a group of clips in one undo step. */
+  setClipStarts: (moves: Array<{ clipId: string; start: number }>, record?: boolean) => void;
+  /** Nudges every selected clip by the same amount. */
+  moveSelectedClips: (delta: number, record?: boolean) => void;
   recordSnapshot: () => void;
   undo: () => void;
   redo: () => void;
@@ -144,11 +195,40 @@ function cachedClipCount(project: Project): number {
 
 const clipCountCache = new WeakMap<Track[], number>();
 
+/** Captures the parts of the editor that undo and redo should restore. */
+function snapshotOf(state: EditorState): EditorSnapshot {
+  return {
+    project: state.project as Project,
+    selectedClipIds: state.selectedClipIds,
+    selectedClipId: state.selectedClipId,
+    selectionAnchorId: state.selectionAnchorId,
+    currentTime: state.currentTime,
+    zoom: state.zoom,
+    snap: state.snap,
+    ripple: state.ripple,
+  };
+}
+
+/** Drops ids that no longer point at a clip. */
+function existingClipIds(project: Project, ids: Iterable<string>): string[] {
+  const index = clipIndex(project.tracks);
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const id of ids) {
+    if (seen.has(id) || !index.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+  }
+  return result;
+}
+
 export const useEditor = create<EditorState>((set, get) => ({
   project: null,
   currentTime: 0,
   playing: false,
   selectedClipId: null,
+  selectedClipIds: [],
+  selectionAnchorId: null,
   zoom: 70,
   snap: true,
   ripple: false,
@@ -160,15 +240,15 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   openProject: (project) => {
     const tracks = project.tracks.map((track) => ({ ...track, magnetic: Boolean(track.magnetic) }));
-    if (!tracks.some((track) => track.magnetic)) {
-      const firstVideo = tracks.find((track) => track.kind === "video");
-      if (firstVideo) firstVideo.magnetic = true;
-    }
     set({
       project: { ...project, tracks },
       currentTime: 0,
       playing: false,
       selectedClipId: null,
+      selectedClipIds: [],
+      selectionAnchorId: null,
+      snap: true,
+      ripple: false,
       dirty: false,
       savedAt: Date.now(),
       undoStack: [],
@@ -182,6 +262,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       currentTime: 0,
       playing: false,
       selectedClipId: null,
+      selectedClipIds: [],
+      selectionAnchorId: null,
       undoStack: [],
       redoStack: [],
       dirty: false,
@@ -290,7 +372,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       target.clips.push(clip);
       compactMagneticTrack(target);
     });
-    set({ selectedClipId: clip.id, playing: false });
+    set({ selectedClipId: clip.id, selectedClipIds: [clip.id], selectionAnchorId: clip.id, playing: false });
   },
 
   extractAudio: (clipId) => {
@@ -318,7 +400,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       if (!target) target = createLayer(draft, "audio");
       target.clips.push(clip);
     });
-    set({ selectedClipId: clip.id, playing: false });
+    set({ selectedClipId: clip.id, selectedClipIds: [clip.id], selectionAnchorId: clip.id, playing: false });
   },
 
   addTextClip: (text, at, style) => {
@@ -388,7 +470,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       if (!track) track = createLayer(draft, "text");
       track.clips.push(clip);
     });
-    set({ selectedClipId: clip.id, playing: false });
+    set({ selectedClipId: clip.id, selectedClipIds: [clip.id], selectionAnchorId: clip.id, playing: false });
   },
 
   importSubtitleCues: (cues) => {
@@ -435,7 +517,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       if (!target) target = createLayer(draft, "misc");
       target.clips.push(clip);
     });
-    set({ selectedClipId: clip.id, playing: false });
+    set({ selectedClipId: clip.id, selectedClipIds: [clip.id], selectionAnchorId: clip.id, playing: false });
   },
 
   addTrack: (kind) => {
@@ -444,22 +526,92 @@ export const useEditor = create<EditorState>((set, get) => ({
     });
   },
 
+  deleteTrack: (trackId) => {
+    const project = get().project;
+    const track = project?.tracks.find((item) => item.id === trackId);
+    if (!project || !track || track.locked) return;
+    const removed = new Set(track.clips.map((clip) => clip.id));
+    get().mutate((draft) => {
+      const index = draft.tracks.findIndex((item) => item.id === trackId);
+      if (index < 0 || draft.tracks[index].locked) return;
+      draft.tracks.splice(index, 1);
+    });
+    const selectedClipIds = get().selectedClipIds.filter((id) => !removed.has(id));
+    set({
+      selectedClipIds,
+      selectedClipId: selectedClipIds[selectedClipIds.length - 1] ?? null,
+      selectionAnchorId: selectedClipIds[selectedClipIds.length - 1] ?? null,
+    });
+  },
+
+  /**
+   * Moves a track by one slot, staying inside its kind group. Because the
+   * timeline draws each kind in reverse project order, a positive direction
+   * moves the track towards the top of the visible stack.
+   */
+  moveTrack: (trackId, direction) => {
+    get().mutate((project) => {
+      const track = project.tracks.find((item) => item.id === trackId);
+      if (!track) return;
+      const group = project.tracks.filter((item) => item.kind === track.kind);
+      const groupIndex = group.findIndex((item) => item.id === trackId);
+      const neighbor = group[groupIndex + direction];
+      if (!neighbor) return;
+      const from = project.tracks.indexOf(track);
+      const to = project.tracks.indexOf(neighbor);
+      project.tracks.splice(from, 1);
+      project.tracks.splice(to, 0, track);
+    });
+  },
+
+  moveTrackUp: (trackId) => {
+    get().moveTrack(trackId, 1);
+  },
+
+  moveTrackDown: (trackId) => {
+    get().moveTrack(trackId, -1);
+  },
+
+  reorderTrack: (trackId, targetIndex) => {
+    get().mutate((project) => {
+      const from = project.tracks.findIndex((item) => item.id === trackId);
+      if (from < 0) return;
+      const [track] = project.tracks.splice(from, 1);
+      const index = clamp(targetIndex, 0, project.tracks.length);
+      project.tracks.splice(index, 0, track);
+    });
+  },
+
   moveClipToTrack: (clipId, trackId) => {
+    get().moveClipsToTrack([clipId], trackId);
+  },
+
+  moveClipsToTrack: (clipIds, trackId, record = true) => {
     const project = get().project;
     const target = project?.tracks.find((track) => track.id === trackId);
-    if (!project || !target || target.locked) return;
-    const source = project.tracks.find((track) => track.clips.some((clip) => clip.id === clipId));
-    const clip = source?.clips.find((item) => item.id === clipId);
-    if (!source || !clip || source.id === target.id || clip.kind !== target.kind) return;
+    if (!project || !target || target.locked || !clipIds.length) return;
+    const moving = new Set(clipIds);
+    const sources = project.tracks.filter((track) => track.clips.some((clip) => moving.has(clip.id)));
+    const clips = sources.flatMap((track) => track.clips.filter((clip) => moving.has(clip.id)));
+    // A mixed-kind drop is refused as a whole, so the timeline never ends up
+    // with a video clip on an audio track.
+    if (!clips.length || clips.some((clip) => clip.kind !== target.kind)) return;
+    const sourceIndex = Math.min(...sources.map((track) => project.tracks.indexOf(track)));
+    const targetIndex = project.tracks.indexOf(target);
+    const preferRight = targetIndex >= sourceIndex;
     get().mutate((draft) => {
-      const draftSource = draft.tracks.find((track) => track.id === source.id);
       const draftTarget = draft.tracks.find((track) => track.id === target.id);
-      const index = draftSource?.clips.findIndex((item) => item.id === clipId) ?? -1;
-      if (!draftSource || !draftTarget || index < 0 || draftTarget.locked) return;
-      const [moved] = draftSource.clips.splice(index, 1);
-      draftTarget.clips.push(moved);
-      settleMagneticTracks(draft, [draftSource.id, draftTarget.id]);
-    });
+      if (!draftTarget || draftTarget.locked) return;
+      for (const current of clips) {
+        const draftSource = draft.tracks.find((track) => track.clips.some((clip) => clip.id === current.id));
+        if (!draftSource) continue;
+        const index = draftSource.clips.findIndex((clip) => clip.id === current.id);
+        if (index < 0) continue;
+        const [moved] = draftSource.clips.splice(index, 1);
+        moved.start = findFreeStart(draftTarget, moving, moved.start, moved.duration, preferRight);
+        draftTarget.clips.push(moved);
+      }
+    }, record);
   },
 
   updateClip: (clipId, patch, record = true) => {
@@ -479,8 +631,57 @@ export const useEditor = create<EditorState>((set, get) => ({
       if (compressorPatch) {
         clip.compressor = { ...DEFAULT_COMPRESSOR, ...clip.compressor, ...compressorPatch };
       }
+      if (typeof rest.start === "number") {
+        const desired = Math.max(0, rest.start);
+        const duration = typeof rest.duration === "number" ? rest.duration : clip.duration;
+        rest.start = findFreeStart(
+          location.track,
+          clipId,
+          desired,
+          duration,
+          desired >= clip.start,
+        );
+      }
       Object.assign(clip, rest);
     }, record);
+  },
+
+  setClipStarts: (moves, record = false) => {
+    if (!moves.length) return;
+    const moving = new Set(moves.map((move) => move.clipId));
+    get().mutate((project) => {
+      const desired = moves
+        .map((move) => {
+          const location = clipIndex(project.tracks).get(move.clipId);
+          return location ? { ...move, location } : null;
+        })
+        .filter((move): move is { clipId: string; start: number; location: { track: Track; clip: Clip; index: number } } => Boolean(move));
+      for (const move of desired) {
+        const clip = move.location.clip;
+        const target = Math.max(0, move.start);
+        clip.start = findFreeStart(
+          move.location.track,
+          moving,
+          target,
+          clip.duration,
+          target >= clip.start,
+        );
+      }
+    }, record);
+  },
+
+  moveSelectedClips: (delta, record = true) => {
+    const state = get();
+    if (!state.project || !state.selectedClipIds.length || Math.abs(delta) < 1e-6) return;
+    const index = clipIndex(state.project.tracks);
+    const clips = state.selectedClipIds
+      .map((id) => index.get(id)?.clip)
+      .filter((clip): clip is Clip => Boolean(clip));
+    if (!clips.length) return;
+    const minStart = Math.min(...clips.map((clip) => clip.start));
+    const applied = Math.max(delta, -minStart);
+    if (Math.abs(applied) < 1e-6) return;
+    state.setClipStarts(clips.map((clip) => ({ clipId: clip.id, start: clip.start + applied })), record);
   },
 
   trimClip: (clipId, edge, time) => {
@@ -500,12 +701,15 @@ export const useEditor = create<EditorState>((set, get) => ({
       if (!location) return;
       const track = location.track;
       const draftClip = location.clip;
-      const ripple = state.ripple || Boolean(track.magnetic);
+      const ripple = state.ripple;
       const originalDuration = draftClip.duration;
+      const bounds = neighborBounds(track, clipId, draftClip);
 
       if (edge === "start") {
         const earliest = Math.max(0, draftClip.start - draftClip.trimIn / Math.max(draftClip.speed, 0.01));
-        const target = clamp(time, earliest, draftClip.start + draftClip.duration - minDuration);
+        let target = clamp(time, earliest, draftClip.start + draftClip.duration - minDuration);
+        if (!ripple) target = Math.max(target, bounds.previousEnd);
+        target = clamp(target, earliest, draftClip.start + draftClip.duration - minDuration);
         const delta = target - draftClip.start;
         if (ripple) {
           rippleTrimStart(draft, draftClip, target, minDuration);
@@ -524,7 +728,11 @@ export const useEditor = create<EditorState>((set, get) => ({
       if (asset && !asset.info.isImage && asset.info.duration > 0) {
         maxDuration = Math.max(minDuration, (asset.info.duration - draftClip.trimIn) / Math.max(draftClip.speed, 0.01));
       }
-      const target = clamp(time, draftClip.start + minDuration, draftClip.start + maxDuration);
+      let target = clamp(time, draftClip.start + minDuration, draftClip.start + maxDuration);
+      if (!ripple && Number.isFinite(bounds.nextStart)) {
+        target = Math.min(target, bounds.nextStart);
+      }
+      target = Math.max(target, draftClip.start + minDuration);
       if (ripple) {
         rippleTrimEnd(draft, draftClip, target);
       } else {
@@ -564,66 +772,232 @@ export const useEditor = create<EditorState>((set, get) => ({
         draftTrack.clips.push(right);
         compactMagneticTrack(draftTrack);
       });
-      set({ selectedClipId: rightId });
+      set({ selectedClipId: rightId, selectedClipIds: [rightId], selectionAnchorId: rightId });
       return;
     }
   },
 
   splitAtPlayhead: () => {
-    const selected = get().selectedClipId;
-    if (selected) {
-      get().splitClip(selected, get().currentTime);
-      return;
-    }
-    const project = get().project;
+    const state = get();
+    const project = state.project;
     if (!project) return;
-    const time = get().currentTime;
+    const time = state.currentTime;
+    const selected = state.selectedClipIds.length ? new Set(state.selectedClipIds) : null;
+    const targets: Array<{ trackId: string; clipId: string; local: number }> = [];
     for (const track of project.tracks) {
-      const clip = track.clips.find((item) => time > item.start && time < item.start + item.duration);
-      if (clip) {
-        get().splitClip(clip.id, time);
-        return;
+      if (track.locked) continue;
+      for (const clip of track.clips) {
+        if (selected && !selected.has(clip.id)) continue;
+        const local = time - clip.start;
+        if (local <= 0.05 || local >= clip.duration - 0.05) continue;
+        targets.push({ trackId: track.id, clipId: clip.id, local });
+        // Without a selection the playhead splits the first clip it crosses,
+        // which keeps the old single-clip behaviour.
+        if (!selected) break;
       }
+      if (!selected && targets.length) break;
+    }
+    if (!targets.length) return;
+
+    const rightIds: string[] = [];
+    get().mutate((draft) => {
+      const touched = new Set<string>();
+      for (const target of targets) {
+        const draftTrack = draft.tracks.find((item) => item.id === target.trackId);
+        const draftClip = draftTrack?.clips.find((item) => item.id === target.clipId);
+        if (!draftTrack || !draftClip) continue;
+        const originalDuration = draftClip.duration;
+        const rightId = newId();
+        const right: Clip = {
+          ...draftClip,
+          id: rightId,
+          start: time,
+          duration: originalDuration - target.local,
+          trimIn: draftClip.trimIn + target.local * draftClip.speed,
+          speedRamp: sliceSpeedRamp(draftClip.speedRamp, target.local, originalDuration),
+          text: draftClip.text ? { ...draftClip.text } : undefined,
+        };
+        draftClip.duration = target.local;
+        draftClip.speedRamp = sliceSpeedRamp(draftClip.speedRamp, 0, target.local);
+        draftTrack.clips.push(right);
+        touched.add(draftTrack.id);
+        rightIds.push(rightId);
+      }
+      for (const trackId of touched) {
+        const track = draft.tracks.find((item) => item.id === trackId);
+        if (track) compactMagneticTrack(track);
+      }
+    });
+    if (rightIds.length) {
+      set({
+        selectedClipIds: rightIds,
+        selectedClipId: rightIds[rightIds.length - 1],
+        selectionAnchorId: rightIds[rightIds.length - 1],
+      });
     }
   },
 
   duplicateClip: (clipId) => {
-    const project = get().project;
-    if (!project) return;
-    for (const track of project.tracks) {
-      const clip = track.clips.find((item) => item.id === clipId);
-      if (!clip) continue;
-      const copy: Clip = {
-        ...clip,
-        id: newId(),
-        start: clip.start + clip.duration,
-        text: clip.text ? { ...clip.text } : undefined,
-      };
-      get().mutate((draft) => {
-        const target = draft.tracks.find((item) => item.id === track.id);
-        if (!target) return;
-        target.clips.push(copy);
-        compactMagneticTrack(target);
-      });
-      set({ selectedClipId: copy.id });
-      return;
-    }
+    get().setClipSelection([clipId]);
+    get().duplicateSelected();
+  },
+
+  duplicateSelected: () => {
+    const state = get();
+    if (!state.project) return;
+    const ids = state.selectedClipIds.length
+      ? state.selectedClipIds
+      : state.selectedClipId
+        ? [state.selectedClipId]
+        : [];
+    if (!ids.length) return;
+    const copyIds: string[] = [];
+    get().mutate((project) => {
+      const moving = new Set(ids);
+      for (const clipId of ids) {
+        const found = findClip(project, clipId);
+        if (!found) continue;
+        const { track, clip } = found;
+        const copy: Clip = {
+          ...clip,
+          id: newId(),
+          start: clip.start + clip.duration,
+          text: clip.text ? { ...clip.text } : undefined,
+        };
+        if (!track.magnetic) {
+          copy.start = findFreeStart(track, moving, copy.start, copy.duration, true);
+        }
+        track.clips.push(copy);
+        copyIds.push(copy.id);
+        if (track.magnetic) compactMagneticTrack(track);
+      }
+    });
+    if (!copyIds.length) return;
+    set({
+      selectedClipIds: copyIds,
+      selectedClipId: copyIds[copyIds.length - 1],
+      selectionAnchorId: copyIds[copyIds.length - 1],
+    });
   },
 
   deleteClip: (clipId) => {
-    const ripple = get().ripple;
-    get().mutate((project) => {
-      removeClip(project, clipId, ripple);
+    get().deleteClips([clipId]);
+  },
+
+  deleteClips: (clipIds) => {
+    const ids = [...new Set(clipIds)];
+    if (!ids.length) return;
+    const state = get();
+    if (state.project) {
+      const known = new Set(existingClipIds(state.project, ids));
+      if (!known.size) return;
+      const ripple = state.ripple;
+      get().mutate((project) => {
+        removeClips(project, known, ripple);
+      });
+    }
+    const remaining = get().selectedClipIds.filter((id) => !ids.includes(id));
+    const primary = get().selectedClipId;
+    const nextPrimary = primary && !ids.includes(primary)
+      ? primary
+      : remaining[remaining.length - 1] ?? null;
+    set({
+      selectedClipIds: remaining,
+      selectedClipId: nextPrimary,
+      selectionAnchorId: nextPrimary,
     });
-    if (get().selectedClipId === clipId) set({ selectedClipId: null });
   },
 
   deleteSelected: () => {
-    const selected = get().selectedClipId;
-    if (selected) get().deleteClip(selected);
+    const state = get();
+    const ids = state.selectedClipIds.length
+      ? state.selectedClipIds
+      : state.selectedClipId
+        ? [state.selectedClipId]
+        : [];
+    if (ids.length) state.deleteClips(ids);
   },
 
-  selectClip: (clipId) => set({ selectedClipId: clipId }),
+  selectClip: (clipId, options) => {
+    const opts: SelectClipOptions = typeof options === "boolean" ? { additive: options } : options ?? {};
+    if (!clipId) {
+      set({ selectedClipId: null, selectedClipIds: [], selectionAnchorId: null });
+      return;
+    }
+    if (opts.range) {
+      get().selectClipRange(clipId, opts.trackId, opts.additive);
+      return;
+    }
+    const state = get();
+    if (opts.additive) {
+      const exists = state.selectedClipIds.includes(clipId);
+      const ids = exists
+        ? state.selectedClipIds.filter((id) => id !== clipId)
+        : [...state.selectedClipIds, clipId];
+      set({
+        selectedClipIds: ids,
+        selectedClipId: exists ? ids[ids.length - 1] ?? null : clipId,
+        selectionAnchorId: exists ? state.selectionAnchorId : clipId,
+      });
+      return;
+    }
+    set({ selectedClipId: clipId, selectedClipIds: [clipId], selectionAnchorId: clipId });
+  },
+
+  setClipSelection: (clipIds) => {
+    const project = get().project;
+    const ids = project ? existingClipIds(project, clipIds) : [];
+    set({
+      selectedClipIds: ids,
+      selectedClipId: ids[ids.length - 1] ?? null,
+      selectionAnchorId: ids[ids.length - 1] ?? null,
+    });
+  },
+
+  selectClips: (clipIds) => {
+    get().setClipSelection(clipIds);
+  },
+
+  toggleClipSelection: (clipId) => {
+    get().selectClip(clipId, { additive: true });
+  },
+
+  selectClipRange: (clipId, trackId, additive = false) => {
+    const state = get();
+    const project = state.project;
+    if (!project) return;
+    const track = trackId
+      ? project.tracks.find((item) => item.id === trackId)
+      : project.tracks.find((item) => item.clips.some((clip) => clip.id === clipId));
+    if (!track) return;
+    const ordered = [...track.clips].sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
+    const targetIndex = ordered.findIndex((clip) => clip.id === clipId);
+    const anchorId = state.selectionAnchorId ?? state.selectedClipId;
+    const anchorIndex = anchorId ? ordered.findIndex((clip) => clip.id === anchorId) : -1;
+    if (targetIndex < 0) return;
+    if (anchorIndex < 0) {
+      get().selectClip(clipId);
+      return;
+    }
+    const from = Math.min(anchorIndex, targetIndex);
+    const to = Math.max(anchorIndex, targetIndex);
+    const range = ordered.slice(from, to + 1).map((clip) => clip.id);
+    const ids = additive
+      ? existingClipIds(project, [...state.selectedClipIds, ...range])
+      : range;
+    set({
+      selectedClipIds: ids,
+      selectedClipId: clipId,
+      // Keep the original anchor so Shift-click can grow the range both ways.
+      selectionAnchorId: anchorId,
+    });
+  },
+
+  selectAll: () => {
+    const project = get().project;
+    if (!project) return;
+    get().setClipSelection(project.tracks.flatMap((track) => track.clips.map((clip) => clip.id)));
+  },
 
   updateTrack: (trackId, patch, record = true) => {
     get().mutate((project) => {
@@ -668,40 +1042,67 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   recordSnapshot: () => {
-    const project = get().project;
-    if (!project) return;
-    set((state) => ({
-      undoStack: [...state.undoStack, project].slice(-historyLimit(project)),
-      redoStack: [],
-    }));
+    set((state) => {
+      if (!state.project) return {};
+      return {
+        undoStack: [...state.undoStack, snapshotOf(state)].slice(-historyLimit(state.project)),
+        redoStack: [],
+      };
+    });
   },
 
   undo: () => {
-    const { undoStack, project } = get();
-    if (!project || undoStack.length === 0) return;
-    const previous = undoStack[undoStack.length - 1];
-    set((state) => ({
-      project: previous,
+    const state = get();
+    if (!state.project || state.undoStack.length === 0) return;
+    const previous = state.undoStack[state.undoStack.length - 1];
+    const restoredIds = existingClipIds(previous.project, previous.selectedClipIds);
+    const primary = previous.selectedClipId && restoredIds.includes(previous.selectedClipId)
+      ? previous.selectedClipId
+      : restoredIds[restoredIds.length - 1] ?? null;
+    const anchor = previous.selectionAnchorId && restoredIds.includes(previous.selectionAnchorId)
+      ? previous.selectionAnchorId
+      : primary;
+    set({
+      project: previous.project,
+      selectedClipIds: restoredIds,
+      selectedClipId: primary,
+      selectionAnchorId: anchor,
+      currentTime: previous.currentTime,
+      zoom: previous.zoom,
+      snap: previous.snap,
+      ripple: previous.ripple,
       undoStack: state.undoStack.slice(0, -1),
-      redoStack: [...state.redoStack, project].slice(-historyLimit(project)),
+      redoStack: [...state.redoStack, snapshotOf(state)].slice(-historyLimit(previous.project)),
       dirty: true,
-      selectedClipId: null,
       playing: false,
-    }));
+    });
   },
 
   redo: () => {
-    const { redoStack, project } = get();
-    if (!project || redoStack.length === 0) return;
-    const next = redoStack[redoStack.length - 1];
-    set((state) => ({
-      project: next,
+    const state = get();
+    if (!state.project || state.redoStack.length === 0) return;
+    const next = state.redoStack[state.redoStack.length - 1];
+    const restoredIds = existingClipIds(next.project, next.selectedClipIds);
+    const primary = next.selectedClipId && restoredIds.includes(next.selectedClipId)
+      ? next.selectedClipId
+      : restoredIds[restoredIds.length - 1] ?? null;
+    const anchor = next.selectionAnchorId && restoredIds.includes(next.selectionAnchorId)
+      ? next.selectionAnchorId
+      : primary;
+    set({
+      project: next.project,
+      selectedClipIds: restoredIds,
+      selectedClipId: primary,
+      selectionAnchorId: anchor,
+      currentTime: next.currentTime,
+      zoom: next.zoom,
+      snap: next.snap,
+      ripple: next.ripple,
       redoStack: state.redoStack.slice(0, -1),
-      undoStack: [...state.undoStack, project].slice(-historyLimit(project)),
+      undoStack: [...state.undoStack, snapshotOf(state)].slice(-historyLimit(next.project)),
       dirty: true,
-      selectedClipId: null,
       playing: false,
-    }));
+    });
   },
 
   markSaved: () => set({ dirty: false, savedAt: Date.now() }),
@@ -713,11 +1114,21 @@ export const useEditor = create<EditorState>((set, get) => ({
         fn(draft);
         draft.updatedAt = Date.now();
       });
+      const selectedClipIds = existingClipIds(next, state.selectedClipIds);
+      const selectedClipId = state.selectedClipId && selectedClipIds.includes(state.selectedClipId)
+        ? state.selectedClipId
+        : selectedClipIds[selectedClipIds.length - 1] ?? null;
+      const selectionAnchorId = state.selectionAnchorId && selectedClipIds.includes(state.selectionAnchorId)
+        ? state.selectionAnchorId
+        : selectedClipId;
       return {
         project: next,
+        selectedClipIds,
+        selectedClipId,
+        selectionAnchorId,
         dirty: true,
         undoStack: record
-          ? [...state.undoStack, state.project].slice(-historyLimit(next))
+          ? [...state.undoStack, snapshotOf(state)].slice(-historyLimit(next))
           : state.undoStack,
         redoStack: record ? [] : state.redoStack,
       };
@@ -726,13 +1137,17 @@ export const useEditor = create<EditorState>((set, get) => ({
 }));
 
 export function selectedClip(state: EditorState): Clip | null {
-  if (!state.project || !state.selectedClipId) return null;
-  return clipIndex(state.project.tracks).get(state.selectedClipId)?.clip ?? null;
+  if (!state.project) return null;
+  const id = state.selectedClipId ?? state.selectedClipIds[0];
+  if (!id) return null;
+  return clipIndex(state.project.tracks).get(id)?.clip ?? null;
 }
 
 export function selectedTrackOfClip(state: EditorState): Track | null {
-  if (!state.project || !state.selectedClipId) return null;
-  return clipIndex(state.project.tracks).get(state.selectedClipId)?.track ?? null;
+  if (!state.project) return null;
+  const id = state.selectedClipId ?? state.selectedClipIds[0];
+  if (!id) return null;
+  return clipIndex(state.project.tracks).get(id)?.track ?? null;
 }
 
 /**

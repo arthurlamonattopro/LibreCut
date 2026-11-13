@@ -10,6 +10,12 @@ export const VISIBLE_MARGIN_SECONDS = 4;
 
 export type DragMode = "move" | "trim-start" | "trim-end";
 
+export interface DragMember {
+  clipId: string;
+  trackId: string;
+  originalStart: number;
+}
+
 export interface DragState {
   mode: DragMode;
   clipId: string;
@@ -17,6 +23,10 @@ export interface DragState {
   startX: number;
   originalStart: number;
   originalDuration: number;
+  /** Every clip that moves with the dragged clip. */
+  members: DragMember[];
+  /** The snapshot is only taken once the pointer has actually moved. */
+  snapshotTaken: boolean;
 }
 
 export function trackHeight(kind: TrackKind): number {

@@ -99,12 +99,12 @@ describe("editing regression", () => {
     expect(voice.clips[0].duration).toBeCloseTo(11, 5);
   });
 
-  it("keeps the magnetic track packed without ripple", () => {
+  it("does not move later clips on a magnetic track without ripple", () => {
     useEditor.getState().deleteClip("clip-v02-main");
 
     const main = track("video");
     expect(main.clips.map((item) => item.id)).toEqual(["clip-v02-second"]);
-    expect(main.clips[0].start).toBeCloseTo(0, 5);
+    expect(main.clips[0].start).toBeCloseTo(6, 5);
   });
 
   it("duplicates a clip and packs the magnetic track again", () => {

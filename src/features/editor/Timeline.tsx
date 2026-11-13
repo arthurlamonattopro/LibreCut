@@ -36,6 +36,7 @@ import {
   rulerLabel,
   rulerStep,
   trackHeight,
+  trackIcon,
   type DragMode,
   type DragState,
 } from "./timeline/geometry";
@@ -46,20 +47,30 @@ export function Timeline({ height = 310 }: { height?: number }) {
   const project = useEditor((state) => state.project);
   const currentTime = useEditor((state) => state.currentTime);
   const selectedClipId = useEditor((state) => state.selectedClipId);
+  const selectedClipIds = useEditor((state) => state.selectedClipIds);
   const zoom = useEditor((state) => state.zoom);
   const setZoom = useEditor((state) => state.setZoom);
   const setCurrentTime = useEditor((state) => state.setCurrentTime);
   const setPlaying = useEditor((state) => state.setPlaying);
   const addTrack = useEditor((state) => state.addTrack);
   const selectClip = useEditor((state) => state.selectClip);
-  const recordSnapshot = useEditor((state) => state.recordSnapshot);
   const t = useT();
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const scrubRef = useRef(false);
+  const pointerStartRef = useRef<{ x: number; y: number; marquee: boolean; additive: boolean } | null>(null);
+  const marqueeRef = useRef<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+    base: string[];
+  } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [dropTrack, setDropTrack] = useState<string | null>(null);
+  const [marqueeBox, setMarqueeBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [viewport, setViewport] = useState({ left: 0, right: 0 });
   /**
    * The clip that holds the keyboard focus.
@@ -219,6 +230,18 @@ export function Timeline({ height = 310 }: { height?: number }) {
     };
   }, []);
 
+  // Keep the playhead in view while playback runs or an edit moves it.
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const x = LABEL_WIDTH + currentTime * zoom;
+    const viewLeft = element.scrollLeft + LABEL_WIDTH;
+    const viewRight = element.scrollLeft + element.clientWidth;
+    if (x < viewLeft || x > viewRight - 16) {
+      element.scrollLeft = Math.max(0, x - LABEL_WIDTH - element.clientWidth * 0.35);
+    }
+  }, [currentTime, zoom]);
+
   useEffect(() => {
     const onMove = (event: PointerEvent) => {
       const drag = dragRef.current;
@@ -232,15 +255,36 @@ export function Timeline({ height = 310 }: { height?: number }) {
       if (drag.mode === "move") {
         let next = Math.max(0, drag.originalStart + delta);
         if (state.snap) next = Math.max(0, snapToBoundary(next, boundaries, threshold));
-        state.updateClip(drag.clipId, { start: next }, false);
-      } else if (drag.mode === "trim-start") {
-        let next = Math.max(0, drag.originalStart + delta);
-        if (state.snap) next = snapToBoundary(next, boundaries, threshold);
-        state.trimClip(drag.clipId, "start", next);
+        const applied = next - drag.originalStart;
+        if (Math.abs(applied) < 1e-6) return;
+        // Selecting a clip is not an undo step. The snapshot is taken when the
+        // pointer first moves, so the first Ctrl+Z after a click undoes an edit.
+        if (!drag.snapshotTaken) {
+          state.recordSnapshot();
+          drag.snapshotTaken = true;
+        }
+        state.setClipStarts(
+          drag.members.map((member) => ({
+            clipId: member.clipId,
+            start: Math.max(0, member.originalStart + applied),
+          })),
+          false,
+        );
       } else {
-        let next = Math.max(0, drag.originalStart + drag.originalDuration + delta);
-        if (state.snap) next = snapToBoundary(next, boundaries, threshold);
-        state.trimClip(drag.clipId, "end", next);
+        if (Math.abs(delta) < 1e-6) return;
+        if (!drag.snapshotTaken) {
+          state.recordSnapshot();
+          drag.snapshotTaken = true;
+        }
+        if (drag.mode === "trim-start") {
+          let next = Math.max(0, drag.originalStart + delta);
+          if (state.snap) next = snapToBoundary(next, boundaries, threshold);
+          state.trimClip(drag.clipId, "start", next);
+        } else {
+          let next = Math.max(0, drag.originalStart + drag.originalDuration + delta);
+          if (state.snap) next = snapToBoundary(next, boundaries, threshold);
+          state.trimClip(drag.clipId, "end", next);
+        }
       }
       // The handler time is what the user feels while dragging, so it is
       // recorded separately from the render that follows it.
@@ -253,21 +297,31 @@ export function Timeline({ height = 310 }: { height?: number }) {
       if (drag.mode === "move") {
         const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-timeline-track]");
         const targetTrackId = target?.dataset.timelineTrack;
-        if (targetTrackId && targetTrackId !== drag.trackId) {
-          useEditor.getState().moveClipToTrack(drag.clipId, targetTrackId);
-        } else {
-          useEditor.getState().settleMagneticTrack(drag.trackId);
+        const state = useEditor.getState();
+        const targetTrack = state.project?.tracks.find((track) => track.id === targetTrackId);
+        if (targetTrack && targetTrackId !== drag.trackId) {
+          // Move every dragged clip that the target track can hold, in one undo
+          // step. A video clip dropped on an audio track is still refused.
+          const ids = drag.members
+            .filter((member) => {
+              const source = state.project?.tracks.find((track) => track.id === member.trackId);
+              return source?.kind === targetTrack.kind;
+            })
+            .map((member) => member.clipId);
+          if (ids.length) state.moveClipsToTrack(ids, targetTrack.id, !drag.snapshotTaken);
         }
       }
       dragRef.current = null;
       dragBoundariesRef.current = null;
       setDragging(false);
+      setDropTrack(null);
     };
     const onCancel = () => {
       if (!dragRef.current) return;
       dragRef.current = null;
       dragBoundariesRef.current = null;
       setDragging(false);
+      setDropTrack(null);
     };
 
     window.addEventListener("pointermove", onMove);
@@ -281,22 +335,93 @@ export function Timeline({ height = 310 }: { height?: number }) {
   }, [zoom, clipBoundaries]);
 
   useEffect(() => {
-    const onMove = (event: PointerEvent) => {
-      if (!scrubRef.current) return;
-      const target = document.querySelector<HTMLElement>("[data-timeline-ruler]");
-      if (!target) return;
-      const rect = target.getBoundingClientRect();
-      const time = clamp((event.clientX - rect.left) / zoom, 0, timelineDuration);
-      setCurrentTime(time);
+    const updateMarqueeBox = (event: PointerEvent) => {
+      const box = marqueeRef.current;
+      const content = contentRef.current;
+      if (!box || !content) return;
+      box.currentX = event.clientX;
+      box.currentY = event.clientY;
+      const rect = content.getBoundingClientRect();
+      const left = Math.min(box.startX, box.currentX) - rect.left;
+      const top = Math.min(box.startY, box.currentY) - rect.top;
+      setMarqueeBox({
+        left,
+        top,
+        width: Math.abs(box.currentX - box.startX),
+        height: Math.abs(box.currentY - box.startY),
+      });
     };
+
+    const selectInMarquee = () => {
+      const box = marqueeRef.current;
+      const content = contentRef.current;
+      if (!box || !content) return;
+      const left = Math.min(box.startX, box.currentX);
+      const right = Math.max(box.startX, box.currentX);
+      const top = Math.min(box.startY, box.currentY);
+      const bottom = Math.max(box.startY, box.currentY);
+      const ids = new Set(box.base);
+      content.querySelectorAll<HTMLElement>("[data-clip-id]").forEach((element) => {
+        const rect = element.getBoundingClientRect();
+        if (rect.right >= left && rect.left <= right && rect.bottom >= top && rect.top <= bottom) {
+          const id = element.dataset.clipId;
+          if (id) ids.add(id);
+        }
+      });
+      useEditor.getState().setClipSelection([...ids]);
+    };
+
+    const onMove = (event: PointerEvent) => {
+      if (scrubRef.current) {
+        const start = pointerStartRef.current;
+        if (start?.marquee && !marqueeRef.current) {
+          const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+          if (moved > 4) {
+            scrubRef.current = false;
+            marqueeRef.current = {
+              startX: start.x,
+              startY: start.y,
+              currentX: event.clientX,
+              currentY: event.clientY,
+              base: start.additive ? useEditor.getState().selectedClipIds : [],
+            };
+            updateMarqueeBox(event);
+            return;
+          }
+        }
+        if (marqueeRef.current) {
+          updateMarqueeBox(event);
+          return;
+        }
+        const target = document.querySelector<HTMLElement>("[data-timeline-ruler]");
+        if (!target) return;
+        const rect = target.getBoundingClientRect();
+        const time = clamp((event.clientX - rect.left) / zoom, 0, timelineDuration);
+        setCurrentTime(time);
+        return;
+      }
+      if (marqueeRef.current) updateMarqueeBox(event);
+    };
+
     const onUp = () => {
+      if (marqueeRef.current) {
+        selectInMarquee();
+        marqueeRef.current = null;
+        setMarqueeBox(null);
+      } else if (scrubRef.current && pointerStartRef.current?.marquee && !pointerStartRef.current.additive) {
+        // A plain click on empty timeline space clears the selection.
+        useEditor.getState().setClipSelection([]);
+      }
       scrubRef.current = false;
+      pointerStartRef.current = null;
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
     };
   }, [zoom, timelineDuration, setCurrentTime]);
 
@@ -340,8 +465,30 @@ export function Timeline({ height = 310 }: { height?: number }) {
     if (event.button !== 0 || track.locked) return;
     event.stopPropagation();
     setPlaying(false);
-    selectClip(clip.id);
-    recordSnapshot();
+    const additive = event.ctrlKey || event.metaKey;
+    const range = event.shiftKey;
+    if (range || additive) {
+      selectClip(clip.id, { additive, range, trackId: track.id });
+      return;
+    }
+    if (mode !== "move") {
+      selectClip(clip.id);
+    } else if (!selectedClipIds.includes(clip.id)) {
+      selectClip(clip.id);
+    }
+    const selection = useEditor.getState().selectedClipIds;
+    const memberIds = mode === "move" && selection.includes(clip.id)
+      ? selection
+      : [clip.id];
+    const members = memberIds.flatMap((id) => {
+      for (const sourceTrack of project.tracks) {
+        const sourceClip = sourceTrack.clips.find((item) => item.id === id);
+        if (sourceClip) {
+          return [{ clipId: sourceClip.id, trackId: sourceTrack.id, originalStart: sourceClip.start }];
+        }
+      }
+      return [];
+    });
     dragRef.current = {
       mode,
       clipId: clip.id,
@@ -349,6 +496,8 @@ export function Timeline({ height = 310 }: { height?: number }) {
       startX: event.clientX,
       originalStart: clip.start,
       originalDuration: clip.duration,
+      members: members.length ? members : [{ clipId: clip.id, trackId: track.id, originalStart: clip.start }],
+      snapshotTaken: false,
     };
     // The snap candidates are captured once, so a drag does not rebuild the
     // sorted list on every pointer move.
@@ -362,6 +511,12 @@ export function Timeline({ height = 310 }: { height?: number }) {
     if ((event.target as HTMLElement).closest("[data-clip]")) return;
     setPlaying(false);
     scrubRef.current = true;
+    pointerStartRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      marquee: !target.hasAttribute("data-timeline-ruler"),
+      additive: event.ctrlKey || event.metaKey || event.shiftKey,
+    };
     const rect = target.getBoundingClientRect();
     const time = clamp((event.clientX - rect.left) / zoom, 0, timelineDuration);
     setCurrentTime(time);
@@ -372,7 +527,7 @@ export function Timeline({ height = 310 }: { height?: number }) {
     const target = (event.target as HTMLElement).closest<HTMLElement>("[data-clip-id]");
     const clipId = target?.dataset.clipId;
     if (clipId) {
-      selectClip(clipId);
+      if (!useEditor.getState().selectedClipIds.includes(clipId)) selectClip(clipId);
       setPlaying(false);
     }
     setMenu({ x: event.clientX, y: event.clientY, trackId: track.id, clipId });
@@ -385,10 +540,15 @@ export function Timeline({ height = 310 }: { height?: number }) {
     element?.focus();
   }, []);
 
-  /** Moves the focused clip along the timeline. */
+  /** Moves the focused clip, or the whole selection, along the timeline. */
   const moveClipWithKeyboard = (clip: Clip, direction: 1 | -1, coarse: boolean) => {
     const state = useEditor.getState();
     const step = nudgeStep(state.project?.fps ?? 30, coarse);
+    if (state.selectedClipIds.length > 1 && state.selectedClipIds.includes(clip.id)) {
+      state.moveSelectedClips(direction * step);
+      announce(t("{count} clips moved.", { count: state.selectedClipIds.length }));
+      return;
+    }
     const next = Math.max(0, clip.start + direction * step);
     if (Math.abs(next - clip.start) < 0.0001) return;
     state.recordSnapshot();
@@ -449,9 +609,15 @@ export function Timeline({ height = 310 }: { height?: number }) {
     if (key === "Delete" || key === "Backspace") {
       event.preventDefault();
       event.stopPropagation();
-      state.selectClip(clip.id);
-      state.deleteClip(clip.id);
-      announce(t("{name} removed from the timeline.", { name: clip.name }));
+      if (state.selectedClipIds.includes(clip.id) && state.selectedClipIds.length > 1) {
+        const count = state.selectedClipIds.length;
+        state.deleteSelected();
+        announce(t("{count} clips removed from the timeline.", { count }));
+      } else {
+        state.selectClip(clip.id);
+        state.deleteClip(clip.id);
+        announce(t("{name} removed from the timeline.", { name: clip.name }));
+      }
       return;
     }
 
@@ -559,7 +725,7 @@ export function Timeline({ height = 310 }: { height?: number }) {
       <TimelineToolbar onFit={fitZoom} />
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
-        <div className="relative min-h-full" style={{ width: LABEL_WIDTH + contentWidth }}>
+        <div ref={contentRef} className="relative min-h-full" style={{ width: LABEL_WIDTH + contentWidth }}>
           <div className="sticky top-0 z-30 flex border-b border-line-soft bg-panel">
             <div className="sticky left-0 z-40 flex h-8 shrink-0 items-center border-r border-line-soft bg-panel px-3" style={{ width: LABEL_WIDTH }}>
               <span className="text-[9.5px] font-semibold uppercase tracking-[0.13em] text-dim">{t("Tracks")}</span>
@@ -627,11 +793,11 @@ export function Timeline({ height = 310 }: { height?: number }) {
                         clip={clip}
                         track={track}
                         asset={assetForClip(project, clip)}
-                        selected={clip.id === selectedClipId}
+                        selected={selectedClipIds.includes(clip.id)}
                         focusable={clip.id === rovingClipId}
                         zoom={zoom}
                         height={height}
-                        dragging={dragging && clip.id === selectedClipId}
+                        dragging={dragging && selectedClipIds.includes(clip.id)}
                         onPointerDown={(event, mode) => beginInteraction(event, clip, track, mode)}
                         onKeyDown={(event) => handleClipKeyDown(event, clip, trackIndex)}
                         onFocus={() => setFocusedClipId(clip.id)}
@@ -643,13 +809,39 @@ export function Timeline({ height = 310 }: { height?: number }) {
           })}
 
           <div className="flex" style={{ width: LABEL_WIDTH + contentWidth }}>
-            <div className="sticky left-0 z-20 flex h-10 shrink-0 items-center border-r border-line-soft bg-[#17171b] px-2.5" style={{ width: LABEL_WIDTH }}>
-              <button className="flex items-center gap-1 text-[10px] text-dim transition hover:text-ink" onClick={() => addTrack("video")}>
-                <Plus size={11} /> {t("Add track")}
-              </button>
+            <div className="sticky left-0 z-20 flex h-10 shrink-0 items-center gap-0.5 border-r border-line-soft bg-[#17171b] px-2" style={{ width: LABEL_WIDTH }}>
+              <span className="mr-1 text-[10px] text-dim">{t("Add")}</span>
+              {(["video", "audio", "text", "misc"] as const).map((kind) => {
+                const Icon = trackIcon(kind);
+                return (
+                  <button
+                    key={kind}
+                    className="flex h-6 w-6 items-center justify-center rounded text-dim transition hover:bg-white/5 hover:text-ink"
+                    onClick={() => addTrack(kind)}
+                    title={t("Add {kind} track", { kind: t(kind) })}
+                    aria-label={t("Add {kind} track", { kind: t(kind) })}
+                  >
+                    <Plus size={9} aria-hidden="true" />
+                    <Icon size={11} aria-hidden="true" />
+                  </button>
+                );
+              })}
             </div>
             <div className="h-10 flex-1 bg-[#121216]" />
           </div>
+
+          {marqueeBox ? (
+            <div
+              className="pointer-events-none absolute z-20 border border-accent bg-accent-soft"
+              aria-hidden="true"
+              style={{
+                left: marqueeBox.left,
+                top: marqueeBox.top,
+                width: marqueeBox.width,
+                height: marqueeBox.height,
+              }}
+            />
+          ) : null}
 
           <div
             className="pointer-events-none absolute top-0 z-10 w-px bg-accent"

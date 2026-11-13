@@ -116,11 +116,20 @@ describe("ripple edits", () => {
     expect(overlay.clips[0].start).toBe(4);
   });
 
-  it("compacts a magnetic track even without ripple mode", () => {
+  it("leaves a magnetic track where it is without ripple mode", () => {
     const main = track("main", [clip("a", 0, 2), clip("b", 2, 2)], true);
     const p = project([main]);
     removeClip(p, "a", false);
+    expect(starts(main)).toEqual([2]);
+  });
+
+  it("keeps a ripple delete on the edited track", () => {
+    const main = track("main", [clip("a", 0, 2), clip("b", 2, 2)], true);
+    const audio = track("audio", [clip("music", 4, 2)]);
+    const p = project([main, audio]);
+    removeClip(p, "a", true);
     expect(starts(main)).toEqual([0]);
+    expect(audio.clips[0].start).toBe(4);
   });
 
   it("ripple-trims the end and moves following clips", () => {

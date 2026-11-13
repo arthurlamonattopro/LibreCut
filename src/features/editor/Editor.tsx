@@ -160,7 +160,13 @@ export function Editor({ onBack }: { onBack: () => void }) {
       }
       if (command && key === "d") {
         event.preventDefault();
-        if (state.selectedClipId) state.duplicateClip(state.selectedClipId);
+        state.duplicateSelected();
+        return;
+      }
+      if (command && key === "a") {
+        event.preventDefault();
+        state.selectAll();
+        announce(t("{count} clips selected.", { count: useEditor.getState().selectedClipIds.length }));
         return;
       }
 

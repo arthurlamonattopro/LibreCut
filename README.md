@@ -26,8 +26,9 @@ Working today:
 - Project library with local autosave and crash-safe project copies (`.librecut`)
 - Media import with metadata probing, thumbnail strips, waveforms, and automatic preview proxies
 - Multi-track timeline with video, audio, text, and miscellaneous effect tracks
-- Magnetic main track with packed clips, plus a ripple toggle for deletes and trims
-- Clip move, trim, split, duplicate, delete, snapping, zoom, and undo/redo
+- Optional magnetic main track with packed inserts, plus a track-scoped ripple toggle for deletes and trims
+- Multi-select, clip move, trim, split, duplicate, delete, snapping, zoom, and state-restoring undo/redo
+- Track creation, deletion, reordering, and overlap-free placement
 - Speed ramps with editable speed points, in the preview and the export
 - Live canvas preview with compositing, transforms, opacity, transitions, keyframes, text, and audio effects
 - Searchable effect presets, color adjustments, masks, blur, vignette, fades, motion blur, and imported `.cube` LUTs

@@ -95,3 +95,114 @@ describe("editor clip lookup", () => {
     expect(state.project!.tracks[1].clips[0].id).toBe("three");
   });
 });
+
+describe("timeline selection", () => {
+  it("adds clips with Ctrl-click and selects a Shift-click range", () => {
+    useEditor.getState().openProject(project());
+    const state = useEditor.getState();
+    state.selectClip("one");
+    state.selectClip("two", { additive: true });
+    expect(useEditor.getState().selectedClipIds).toEqual(["one", "two"]);
+
+    state.selectClip("three", { additive: true });
+    expect(useEditor.getState().selectedClipIds).toEqual(["one", "two", "three"]);
+
+    state.selectClip("one");
+    state.selectClip("two", { range: true, trackId: "a" });
+    expect(useEditor.getState().selectedClipIds).toEqual(["one", "two"]);
+  });
+
+  it("deletes every selected clip in one undo step", () => {
+    useEditor.getState().openProject(project());
+    const state = useEditor.getState();
+    state.selectClip("one");
+    state.selectClip("two", { additive: true });
+    state.deleteSelected();
+
+    expect(useEditor.getState().project!.tracks[0].clips).toHaveLength(0);
+    expect(useEditor.getState().selectedClipIds).toEqual([]);
+
+    useEditor.getState().undo();
+    expect(useEditor.getState().project!.tracks[0].clips).toHaveLength(2);
+    expect(useEditor.getState().selectedClipIds).toEqual(["one", "two"]);
+  });
+
+  it("does not record a history step just for selecting", () => {
+    useEditor.getState().openProject(project());
+    const state = useEditor.getState();
+    state.selectClip("one");
+    expect(useEditor.getState().undoStack).toHaveLength(0);
+  });
+
+  it("restores selection, playhead, zoom, snap, and ripple with undo", () => {
+    useEditor.getState().openProject(project());
+    const state = useEditor.getState();
+    state.selectClip("one");
+    state.setZoom(140);
+    state.setCurrentTime(1.5);
+    state.toggleSnap();
+    state.toggleRipple();
+    state.updateClip("one", { opacity: 0.4 });
+
+    const afterEdit = useEditor.getState();
+    afterEdit.setZoom(200);
+    afterEdit.setCurrentTime(0.2);
+    afterEdit.toggleSnap();
+    afterEdit.toggleRipple();
+    afterEdit.selectClip("two");
+
+    useEditor.getState().undo();
+    const restored = useEditor.getState();
+    expect(restored.project!.tracks[0].clips[0].opacity).toBe(1);
+    expect(restored.selectedClipIds).toEqual(["one"]);
+    expect(restored.currentTime).toBeCloseTo(1.5, 5);
+    expect(restored.zoom).toBe(140);
+    expect(restored.snap).toBe(false);
+    expect(restored.ripple).toBe(true);
+  });
+
+  it("does not assign a magnetic track when a project opens", () => {
+    useEditor.getState().openProject(project());
+    expect(useEditor.getState().project!.tracks.some((track) => track.magnetic)).toBe(false);
+  });
+});
+
+describe("timeline overlap and track editing", () => {
+  it("keeps a moved clip out of its neighbour", () => {
+    useEditor.getState().openProject(project());
+    useEditor.getState().updateClip("two", { start: 1 });
+    const clips = useEditor.getState().project!.tracks[0].clips;
+    const first = clips.find((clip) => clip.id === "one")!;
+    const second = clips.find((clip) => clip.id === "two")!;
+    expect(second.start).toBeGreaterThanOrEqual(first.start + first.duration);
+  });
+
+  it("stops a trim at the next clip", () => {
+    useEditor.getState().openProject(project());
+    useEditor.getState().trimClip("one", "end", 20);
+    const clips = useEditor.getState().project!.tracks[0].clips;
+    expect(clips[0].duration).toBeCloseTo(5, 5);
+  });
+
+  it("keeps ripple edits on the edited track", () => {
+    useEditor.getState().openProject(project());
+    useEditor.getState().updateClip("three", { start: 7 }, false);
+    useEditor.getState().toggleRipple();
+    useEditor.getState().deleteClip("one");
+
+    const tracks = useEditor.getState().project!.tracks;
+    expect(tracks[0].clips[0].start).toBeCloseTo(3, 5);
+    expect(tracks[1].clips[0].start).toBeCloseTo(7, 5);
+  });
+
+  it("deletes and reorders tracks", () => {
+    useEditor.getState().openProject(project());
+    useEditor.getState().addTrack("video");
+    const added = useEditor.getState().project!.tracks.filter((track) => track.kind === "video").at(-1)!;
+    useEditor.getState().moveTrack(added.id, -1);
+    expect(useEditor.getState().project!.tracks.findIndex((track) => track.id === added.id)).toBe(0);
+
+    useEditor.getState().deleteTrack(added.id);
+    expect(useEditor.getState().project!.tracks.some((track) => track.id === added.id)).toBe(false);
+  });
+});

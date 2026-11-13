@@ -3,6 +3,26 @@
 All notable changes to LibreCut are recorded here. The project follows
 [semantic versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- Multi-select with `Ctrl`-click, `Shift`-click ranges, and rubber-band
+  selection, including bulk move, delete, duplicate, and split.
+- Track deletion and reordering from the track actions menu, and a footer
+  button for every track kind.
+
+### Fixed
+
+- Ripple edits stay on the track they change instead of moving audio and text
+  on other tracks.
+- The magnetic main track no longer reassigns itself on open or repacks after
+  an ordinary move, trim, or delete. Ripple is respected when it is off.
+- Clips settle into the nearest free gap instead of overlapping.
+- The timeline follows the playhead.
+- Undo restores the selection, playhead, zoom, and Snap/Ripple toggles, and
+  selecting a clip no longer creates a history step.
+
 ## 1.0.0
 
 The first stable release. LibreCut is now a dependable editor for everyday

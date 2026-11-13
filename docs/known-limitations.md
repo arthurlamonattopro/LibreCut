@@ -51,35 +51,39 @@ filter. Drag it onto the window instead.
 
 ## The timeline
 
-**There is no multi-select.** One clip at a time. `Ctrl`-click and
-`Shift`-click do not add to the selection, and there is no rubber-band
-selection. Every action applies to the single selected clip.
+**Selection and bulk edits.** Click a clip to select it, `Ctrl`-click to add or
+remove one, and `Shift`-click to select a range on the same track. Drag on empty
+timeline space for a rubber-band selection. Move, delete, duplicate, and split
+then apply to every selected clip.
 
-**Tracks cannot be deleted or reordered.** They can be added, muted, hidden,
-locked, ducked, and made magnetic. The bottom-left **Add track** button always
-adds a video track; use the four `+` buttons in the toolbar for other kinds.
+**Tracks can be deleted and reordered.** Open the track actions menu (the
+button at the right of a track header, or right-click the track) and choose
+**Move track up**, **Move track down**, or **Delete track**. A locked track
+cannot be deleted. The footer and toolbar both offer a `+` button for each
+track kind; the footer no longer adds only video tracks.
 
-**The magnetic main track rearranges itself.** Its clips are packed with no
-gaps, so a clip can appear to jump after a move, a trim, or a delete. It also
-always ripples, even when **Ripple** is off. The first video track becomes the
-main track when a project opens.
+**The magnetic main track is explicit.** A project no longer assigns the first
+video track automatically. Make a track magnetic from its header or the track
+menu. Inserted, split, and duplicated clips are packed in order, but ordinary
+moves, trims, and deletes leave the other clips where they are. The
+**Ripple** toggle is the only switch that closes a gap automatically.
 
-**Ripple moves clips on every unlocked track**, not only the track you
-edited. A ripple delete on a video track also moves the audio and the text.
+**Ripple stays on the track you edited.** A ripple delete or trim on a video
+track moves later clips on that video track only. Audio, text, and other tracks
+keep their timing.
 
-**A clip can only be moved to a track of the same kind,** and the move happens
-when you release the pointer. Dropping a video on an audio track does nothing.
+**Clips do not overlap on a track.** When a move or trim would cross a
+neighbour, the clip settles into the nearest free gap. A clip can still be
+moved between tracks of the same kind; a video clip cannot be dropped on an
+audio track.
 
-**Clips can overlap on a non-magnetic track.** Nothing prevents two clips from
-sitting on top of each other.
+**The timeline follows the playhead.** Scroll it manually to browse, and the
+view returns to the playhead when playback or an edit moves it out of sight.
 
-**The timeline does not follow the playhead.** After a long edit, scroll to
-find it.
-
-**Undo is a whole-project snapshot,** so it does not restore the selection,
-the zoom, the playhead, or the **Snap** and **Ripple** toggles. Selecting a
-clip also records a step, so the first `Ctrl+Z` after a click can look like it
-did nothing.
+**Undo restores the editing state, not only the project.** A step also restores
+the selection, playhead, zoom, and the **Snap** and **Ripple** toggles.
+Selecting a clip does not create a step, so `Ctrl+Z` after a click still undoes
+the last real edit.
 
 **Undo history is bounded.** The limit drops from 100 steps to 32, 16, and 8
 as the project grows past 300, 800, and 2000 clips.

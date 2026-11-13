@@ -5,6 +5,7 @@ import {
   EyeOff,
   Lock,
   Magnet,
+  MoreVertical,
   Unlock,
   Volume2,
   VolumeX,
@@ -48,6 +49,15 @@ export function TimelineTrackHeader({
           {layerTag}{layerNumber}
         </span>
         <span className="text-[9px] text-dim">{track.clips.length}</span>
+        <button
+          className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded text-dim transition hover:bg-white/5 hover:text-ink"
+          onClick={onContextMenu}
+          title={t("Track actions")}
+          aria-label={t("Track actions for {name}", { name: track.name })}
+          aria-haspopup="menu"
+        >
+          <MoreVertical size={11} aria-hidden="true" />
+        </button>
       </div>
       <div className="flex items-center gap-0.5">
         {track.kind === "audio" || track.kind === "video" ? (
