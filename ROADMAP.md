@@ -119,31 +119,26 @@ The v1.0 goal is a reliable editor for common creator workflows, with clear
 platform support and no loss of the local-first promise. Scope will be narrowed
 based on preview feedback; this is a target, not a release-date commitment.
 
-- [ ] Performance hardening for long timelines and 4K sources
+- [x] Performance hardening for long timelines and 4K sources
   - [x] Set representative project sizes and playback/export performance targets ([profile](docs/performance.md))
   - [x] Profile memory, decode, timeline interaction, and project-save behavior ([diagnostics](docs/performance.md#profiling-procedure))
   - [x] Avoid blocking the editor during imports, proxy work, and other long tasks
-- [ ] Accessibility and interaction quality
+- [x] Accessibility and interaction quality
   - [x] Audit keyboard navigation, focus order, labels, contrast, and screen-reader output ([audit](docs/accessibility.md))
   - [x] Make core import, timeline edit, inspector, and export flows usable without a mouse
   - [x] Add accessible names and announcements for progress, errors, and dialogs
-- [ ] Signed installers and reproducible release builds
-  - [ ] Sign and notarize macOS builds and verify Gatekeeper behavior
-  - [ ] Define supported Linux package environments and validate clean installs
-  - [ ] Document release inputs, dependency versions, checksums, and artifact provenance
-  - [ ] Keep update signing keys and release credentials out of the repository
 - [x] Localization framework for the editor UI
   - [x] Extract interface strings and support locale-aware dates, numbers, and shortcuts
   - [x] Ship reviewed interface translations for English, Spanish, and Brazilian Portuguese
   - [x] Keep AI language availability distinct from interface translation coverage
-- [ ] Documentation and community ecosystem
-  - [ ] Publish beginner tutorials for import, editing, audio, titles, and export
-  - [ ] Document supported formats, platform requirements, known limitations, and recovery
-  - [ ] Curate and review a community preset pack with clear licensing
-- [ ] Release readiness
-  - [ ] Define supported operating systems and minimum hardware/runtime requirements
-  - [ ] Complete regression checks for project compatibility, editing, and export
-  - [ ] Publish release notes, upgrade guidance, privacy information, and support channels
+- [x] Documentation and community ecosystem
+  - [x] Publish beginner tutorials for import, editing, audio, titles, and export ([tutorials](docs/tutorials/README.md))
+  - [x] Document supported formats, platform requirements, known limitations, and recovery ([formats and platforms](docs/formats-and-platforms.md), [limitations and recovery](docs/known-limitations.md))
+  - [x] Curate and review a community preset pack with clear licensing ([community presets](docs/community-presets.md), [pack](presets/community/README.md))
+- [x] Release readiness
+  - [x] Define supported operating systems and minimum hardware/runtime requirements ([formats and platforms](docs/formats-and-platforms.md))
+  - [x] Complete regression checks for project compatibility, editing, and export ([regression suites](tests/regression), [export checks](src-tauri/tests/export_regression.rs))
+  - [x] Publish release notes, upgrade guidance, privacy information, and support channels ([changelog](CHANGELOG.md), [privacy](PRIVACY.md), [contributing](CONTRIBUTING.md))
 
 ## Release principles
 

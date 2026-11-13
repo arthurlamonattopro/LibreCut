@@ -79,6 +79,16 @@ Include:
 - Steps to reproduce and expected vs actual behavior
 - Export errors: the FFmpeg message shown in the export dialog
 
+## Contributing presets
+
+Color filters and text styles can be contributed as a preset pack. The pack
+that ships today is in `presets/community/`.
+
+Read `docs/community-presets.md` first. It lists the criteria a preset is
+reviewed against, the process a submission goes through, and the licence:
+the preset values are dedicated to the public domain under CC0-1.0, while the
+rest of the project stays under GPL-3.0-only.
+
 ## License
 
 By contributing you agree your work is licensed under GPL-3.0-only and that you

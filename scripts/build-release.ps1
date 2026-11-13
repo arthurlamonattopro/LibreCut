@@ -7,6 +7,11 @@
     the installer verification script. Use -InstallTest to perform a silent
     install into a temporary directory as part of verification.
 
+.PARAMETER WithUpdaterArtifacts
+    Build the signed updater artifacts as well. They are signed with the
+    release key, which is a CI secret and is not on a developer machine, so a
+    local build leaves them out unless this switch is given.
+
 .EXAMPLE
     ./scripts/build-release.ps1
 
@@ -18,7 +23,8 @@
 param(
     [switch]$SkipFetch,
     [switch]$SkipVerify,
-    [switch]$InstallTest
+    [switch]$InstallTest,
+    [switch]$WithUpdaterArtifacts
 )
 
 $ErrorActionPreference = "Stop"
@@ -72,7 +78,16 @@ try {
     }
 
     Write-Host "Building LibreCut installers" -ForegroundColor Cyan
-    & $pnpm tauri build
+    $tauri = @("tauri", "build")
+    if (-not $WithUpdaterArtifacts) {
+        # The updater artifacts are signed with the release key, which lives in
+        # CI and not on this machine. The override goes through a file because
+        # Windows PowerShell strips the quotes out of an inline JSON argument.
+        $override = Join-Path ([System.IO.Path]::GetTempPath()) "librecut-bundle-override.json"
+        Set-Content -Path $override -Value '{"bundle":{"createUpdaterArtifacts":false}}' -Encoding UTF8
+        $tauri += @("--config", $override)
+    }
+    & $pnpm @tauri
     if ($LASTEXITCODE -ne 0) {
         throw "Tauri build failed."
     }

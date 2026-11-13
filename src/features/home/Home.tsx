@@ -33,7 +33,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { hasSeenFirstRun, markFirstRunSeen } from "../../lib/firstRun";
-import { normalizeProject } from "../../lib/project";
+import { isSupportedProject, normalizeProject } from "../../lib/project";
 import { formatDuration, formatRelativeDate } from "../../lib/time";
 import type { Project, ProjectSummary, RuntimeStatus } from "../../lib/types";
 import { FirstRun } from "./FirstRun";
@@ -93,7 +93,7 @@ export function Home({ onOpenProject }: HomeProps) {
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [checkingRuntime, setCheckingRuntime] = useState(false);
   const [autoUpdate, setAutoUpdate] = useState(readAutoUpdatePreference);
-  const [appVersion, setAppVersion] = useState("0.3.0");
+  const [appVersion, setAppVersion] = useState("1.0.0");
   const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [installingUpdate, setInstallingUpdate] = useState(false);
@@ -242,7 +242,7 @@ export function Home({ onOpenProject }: HomeProps) {
       if (!path) return;
       const raw = await loadProjectFile(path);
       const project = JSON.parse(raw) as Project;
-      if (project.schemaVersion !== 1 || !Array.isArray(project.tracks)) {
+      if (!isSupportedProject(project)) {
         throw new Error(t("Unsupported project file"));
       }
       normalizeProject(project);

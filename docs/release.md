@@ -62,7 +62,7 @@ remain available. No update request is made while the opt-in is off.
 - Windows 10/11 with the MSVC toolchain and Windows SDK
 - Node.js 22+ and pnpm 10+
 - Rust 1.77+
-- 7-Zip (only needed for the `full` FFmpeg variant or installer inspection)
+- 7-Zip (only needed to inspect the installer artifacts)
 
 ## One command
 
@@ -91,6 +91,20 @@ Tauri expects binaries named with the target triple:
 src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
 src-tauri/binaries/ffprobe-x86_64-pc-windows-msvc.exe
 ```
+
+`scripts/fetch-ffmpeg.ps1` downloads a **pinned** FFmpeg build: the version,
+the archive, and the SHA-256 of that archive are written down in the script,
+and the download is refused unless the checksum matches. The pinned build is
+FFmpeg 9.0.1, the essentials build, because FFmpeg 9.0.2 and later deadlock
+on the export filter graph of a timeline that contains a transition — see
+[known limitations and recovery](known-limitations.md#the-export-hangs-on-a-timeline-with-a-transition).
+
+The essentials build carries every filter, codec, and encoder LibreCut uses.
+`pnpm fetch:ffmpeg -Variant full` installs the full build instead, which adds
+the encoders and filters LibreCut does not use and is about 230 MB larger.
+
+The sidecars are not committed. They are fetched before a release build and
+landed in `src-tauri/binaries/`.
 
 They are listed in `src-tauri/tauri.conf.json` under `bundle.externalBin` and
 are installed next to `LibreCut.exe`. At runtime LibreCut resolves tools in this

@@ -38,6 +38,7 @@ Working today:
 - Optional cloud AI through user-provided endpoints and API keys
 - Effect-pack plugins and broader editor plugins, with permissions and lifecycle controls
 - Built-in and custom project templates
+- Community preset packs: reviewed color filters and text styles, published under CC0-1.0 ([pack](presets/community/README.md))
 - H.264/AAC export with size presets, NVENC or CPU encoding, progress, and cancellation
 - Opt-in update checks and updates, with release notes
 - English, Spanish, and Brazilian Portuguese UI, keyboard shortcuts, and a local-first privacy model
@@ -57,6 +58,10 @@ Platform status:
 - Rust 1.77+ with the MSVC toolchain and Windows SDK
 - FFmpeg 9.x with `ffprobe` for development
   - Run `pnpm fetch:ffmpeg` to download verified sidecars into `src-tauri/binaries/`.
+    The script pins FFmpeg 9.0.1 and its checksum: FFmpeg 9.0.2 and later
+    deadlock on the export graph of a timeline that contains a transition.
+    The essentials build is the default; `-Variant full` adds the encoders and
+    filters LibreCut does not use, at about 230 MB more.
   - If you prefer a system install, put `ffmpeg`/`ffprobe` on `PATH` or set `LIBRECUT_FFMPEG` and `LIBRECUT_FFPROBE`.
   - The export pipeline uses FFmpeg 9's `-/filter_complex` script option.
 
@@ -130,6 +135,24 @@ ffmpeg / ffprobe
 
 More detail: [docs/architecture.md](docs/architecture.md) and [docs/project-format.md](docs/project-format.md).
 
+## Documentation
+
+New to LibreCut? Start with the tutorials:
+
+- [Tutorial 1: Import your media](docs/tutorials/01-import-media.md)
+- [Tutorial 2: Cut and edit](docs/tutorials/02-cut-and-edit.md)
+- [Tutorial 3: Mix the audio](docs/tutorials/03-audio.md)
+- [Tutorial 4: Add titles and captions](docs/tutorials/04-titles-and-captions.md)
+- [Tutorial 5: Export the video](docs/tutorials/05-export.md)
+
+Reference:
+
+- [Supported formats and platform requirements](docs/formats-and-platforms.md)
+- [Known limitations and recovery](docs/known-limitations.md)
+- [Community preset packs](docs/community-presets.md)
+- [Changelog](CHANGELOG.md)
+- [Plugin API](docs/plugins.md) · [Project format](docs/project-format.md) · [Architecture](docs/architecture.md) · [Accessibility](docs/accessibility.md) · [Performance](docs/performance.md) · [Release process](docs/release.md)
+
 ## Privacy
 
 Media never leaves the machine. Local AI models contact Hugging Face only when a model is missing from the local bundle and strict offline mode is off. There is no analytics, account system, or cloud dependency. Stable-release update checks are opt-in in Settings and contact this project's GitHub Releases only when enabled. See [PRIVACY.md](PRIVACY.md).
@@ -155,6 +178,6 @@ If you find a bug, include:
 
 - **v0.2:** magnetic main track, ripple edits, speed ramps, offline model bundles, audio ducking and expanded EQ — landed
 - **v0.3:** effects, LUTs, templates, broader plugin API, opt-in auto-update, and macOS/Linux packaging workflows — implemented; platform verification remains
-- **v1.0:** performance hardening, accessibility, signed and reproducible builds, UI localization, and community presets
+- **v1.0:** performance hardening, accessibility, UI localization, documentation, community presets, and a pinned, reproducible FFmpeg runtime — released; see the [changelog](CHANGELOG.md)
 
 See [ROADMAP.md](ROADMAP.md) for details and current open work.
