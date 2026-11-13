@@ -7,6 +7,12 @@ import {
   t,
   useLocale,
 } from "../src/lib/i18n";
+import es from "../src/locales/es.json";
+import ptBR from "../src/locales/pt-BR.json";
+
+function placeholders(value: string): string[] {
+  return [...value.matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort();
+}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -50,6 +56,15 @@ describe("interface localization", () => {
 
   it("keeps both catalogues in sync", () => {
     expect(catalogKeys("es")).toEqual(catalogKeys("pt-BR"));
+  });
+
+  it("keeps each translation internally consistent", () => {
+    for (const [locale, catalog] of [["es", es], ["pt-BR", ptBR]] as const) {
+      for (const [source, translated] of Object.entries(catalog)) {
+        expect(translated.trim(), `${locale}: ${source}`).not.toBe("");
+        expect(placeholders(translated), `${locale}: ${source}`).toEqual(placeholders(source));
+      }
+    }
   });
 
   it("persists the chosen locale", () => {
