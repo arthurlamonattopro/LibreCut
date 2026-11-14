@@ -111,9 +111,21 @@ async fn make_video(dir: &Path) -> PathBuf {
     let output_path = dir.join("source.mp4");
     let output = ffmpeg::command(&ffmpeg::ffmpeg_bin())
         .args([
-            "-v", "error", "-y", "-f", "lavfi", "-i",
-            "testsrc2=size=320x240:rate=30", "-t", "2", "-c:v", "libx264", "-preset",
-            "ultrafast", "-pix_fmt", "yuv420p",
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x240:rate=30",
+            "-t",
+            "2",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-pix_fmt",
+            "yuv420p",
         ])
         .arg(&output_path)
         .output()
@@ -143,7 +155,9 @@ async fn the_render_is_cached_until_the_project_changes() {
         .expect("render the preview");
     assert!(!reused, "the first render must do the work");
     assert!(first_path.is_file());
-    let size = std::fs::metadata(&first_path).expect("stat the render").len();
+    let size = std::fs::metadata(&first_path)
+        .expect("stat the render")
+        .len();
     assert!(size > 512, "the rendered file should not be empty");
 
     let (second_path, reused) = render_preview(&original, temp.path(), &cancel, &|_progress| {})
@@ -152,7 +166,9 @@ async fn the_render_is_cached_until_the_project_changes() {
     assert!(reused, "an unchanged project must reuse the cached file");
     assert_eq!(first_path, second_path);
     assert_eq!(
-        std::fs::metadata(&second_path).expect("stat the cached render").len(),
+        std::fs::metadata(&second_path)
+            .expect("stat the cached render")
+            .len(),
         size,
         "a reused file must not be re-written"
     );
@@ -163,6 +179,9 @@ async fn the_render_is_cached_until_the_project_changes() {
         .await
         .expect("render the preview for a changed project");
     assert!(!reused, "a changed project must render again");
-    assert_ne!(third_path, first_path, "a changed project must get a new file");
+    assert_ne!(
+        third_path, first_path,
+        "a changed project must get a new file"
+    );
     assert!(third_path.is_file());
 }

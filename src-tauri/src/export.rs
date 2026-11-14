@@ -9,8 +9,8 @@ mod render;
 mod transitions;
 
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -149,7 +149,10 @@ pub struct PreviewPlaybackResult {
 
 /// Drops registry ids whose files disappeared from the cache.
 fn prune_ids(state: &PreviewRenderState, cache: &std::path::Path) {
-    let mut ids = state.ids.lock().unwrap_or_else(|poison| poison.into_inner());
+    let mut ids = state
+        .ids
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     if let Ok(entries) = std::fs::read_dir(cache) {
         let alive: Vec<String> = entries
             .filter_map(Result::ok)
@@ -196,7 +199,10 @@ pub async fn render_preview_playback(
     prune_ids(&state, &cache);
     let (path, reused) = result?;
     let media_id = {
-        let mut ids = state.ids.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut ids = state
+            .ids
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         match ids.get(&key) {
             Some(id) => id.clone(),
             None => {

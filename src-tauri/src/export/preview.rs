@@ -71,9 +71,7 @@ async fn run_frame(
             // The graph starts its trim at zero; the time to skip in the source
             // is passed to the input instead, so FFmpeg can seek without
             // decoding everything before the frame.
-            command
-                .arg("-ss")
-                .arg(format!("{:.6}", seeks[index]));
+            command.arg("-ss").arg(format!("{:.6}", seeks[index]));
         }
         command.arg("-i").arg(&clip.path);
     }

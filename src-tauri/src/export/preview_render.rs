@@ -85,7 +85,9 @@ pub fn cleanup_cache(cache_dir: &Path, protect: &Path) -> Vec<String> {
     for entry in entries.filter_map(Result::ok) {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if name.contains(".partial") && (name.starts_with(".preview-") || name.starts_with("preview-")) {
+        if name.contains(".partial")
+            && (name.starts_with(".preview-") || name.starts_with("preview-"))
+        {
             let _ = std::fs::remove_file(entry.path());
         }
     }
@@ -144,9 +146,7 @@ pub async fn render_preview(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::export::{
-        ExportClip, ExportKeyframe, ExportTransition,
-    };
+    use crate::export::{ExportClip, ExportKeyframe, ExportTransition};
 
     fn clip(start: f64, duration: f64) -> ExportClip {
         ExportClip {
