@@ -292,11 +292,13 @@ pub(super) fn speed_setpts_expr(ramp: &[(f64, f64)]) -> String {
 }
 
 pub(super) fn escape_text(text: &str) -> String {
+    // Newlines stay literal. drawtext does not understand `\n`: the filter
+    // argument parser consumes the backslash and paints a letter "n", so the
+    // blank lines of a multi-line title used to show up as a run of n's.
     text.replace('\\', "\\\\")
         .replace('\'', "\\'")
         .replace(':', "\\:")
         .replace('%', "\\%")
-        .replace('\n', "\\n")
 }
 
 /// Wraps a filter option value that holds an expression in quotes.
@@ -454,4 +456,18 @@ pub(super) fn duck_volume_expr(segments: &[ExportDuckSegment]) -> Option<String>
         expr = format!("if(lt(t,{:.6}),{ramp},{expr})", segment.end);
     }
     Some(expr)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::escape_text;
+
+    #[test]
+    fn newlines_stay_literal_for_drawtext() {
+        // drawtext would turn an escaped `\n` into a letter "n", so a title
+        // with blank lines rendered as a run of n's.
+        let escaped = escape_text("Title\n\n\n");
+        assert_eq!(escaped, "Title\n\n\n");
+        assert!(!escaped.contains("\\n"));
+    }
 }

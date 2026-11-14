@@ -1,9 +1,9 @@
 # Roadmap
 
-LibreCut is an early-stage, local-first editor. This roadmap is directional, not
-a promise. Priorities can change based on community feedback.
+LibreCut is a local-first editor. This roadmap is directional, not a
+promise. Priorities can change based on community feedback.
 
-## v0.1 — development preview (current)
+## v0.1 — development preview (landed)
 
 - [x] Tauri 2 + React 19 + Rust shell
 - [x] Project library and local autosave
@@ -26,7 +26,7 @@ a promise. Priorities can change based on community feedback.
 - [x] H.264 export with AAC or ALAC audio, NVENC or CPU, progress, cancel
 - [x] `.librecut` project save/load with backup
 
-Remaining before tagging v0.1:
+Delivered before the v0.1 tag:
 
 - [x] Bundle FFmpeg as a sidecar and verify installer output
 - [x] End-to-end tests on real media
@@ -114,7 +114,7 @@ Output-size estimates are approximate, and variable-frame-rate detection is base
 the frame-rate values reported by FFprobe. Per-feature preview/render differences
 can still vary by source codec, browser, and FFmpeg build.
 
-## v1.0 — dependable release
+## v1.0 — dependable release (released)
 
 The v1.0 goal is a reliable editor for common creator workflows, with clear
 platform support and no loss of the local-first promise. Scope will be narrowed
@@ -140,6 +140,16 @@ based on preview feedback; this is a target, not a release-date commitment.
   - [x] Define supported operating systems and minimum hardware/runtime requirements ([formats and platforms](docs/formats-and-platforms.md))
   - [x] Complete regression checks for project compatibility, editing, and export ([regression suites](tests/regression), [export checks](src-tauri/tests/export_regression.rs))
   - [x] Publish release notes, upgrade guidance, privacy information, and support channels ([changelog](CHANGELOG.md), [privacy](PRIVACY.md), [contributing](CONTRIBUTING.md))
+
+## v1.1 — editing depth and preview accuracy (released)
+
+These changes shipped in 1.1.0; see the [changelog](CHANGELOG.md).
+
+- [x] Multi-select with `Ctrl`-click, `Shift`-click ranges, and rubber-band selection, plus bulk move, delete, duplicate, and split
+- [x] Track deletion and reordering, track-scoped ripple, and overlap-free clip placement
+- [x] **Match export** paused frames rendered with the FFmpeg export graph, and **Exact** whole-timeline playback from a cached export render
+- [x] Selectable audio encoding: AAC at 96–320 kbps or ALAC lossless, at 44.1, 48, or 96 kHz
+- [x] Exact video speed ramps and finely segmented audio retiming
 
 ## Release principles
 

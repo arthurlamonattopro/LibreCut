@@ -2,23 +2,21 @@
 
 **A free, open-source, local-first video editor.** No account. No watermark. No telemetry.
 
-LibreCut is an early-stage desktop editor built for fast, everyday cuts: import media, edit a multi-track timeline, add effects, titles, and music, then export an MP4 locally with FFmpeg. Windows is the primary development platform; macOS and Linux packaging workflows are also available, with hands-on verification still in progress.
+LibreCut is a desktop editor built for fast, everyday cuts: import media, edit a multi-track timeline, add effects, titles, and music, then export an MP4 locally with FFmpeg. Windows is the primary development platform; macOS and Linux packaging workflows are also available, with hands-on verification still in progress.
 
 > LibreCut is not affiliated with CapCut or ByteDance. It is an independent open-source project inspired by the simplicity of modern creator tools.
 
 ## Status
 
-This repository contains the **v0.3 development preview**. The core editing loop and the v0.2 timeline-depth and v0.3 effects/ecosystem work are implemented. Expect rough edges; macOS and Linux packages still need verification on supported systems.
+**LibreCut 1.1.0** is the latest stable release (see the [changelog](CHANGELOG.md)). Windows is verified end to end; macOS and Linux packages still need hands-on verification on supported systems.
 
 Verified today:
 
 - `pnpm tauri dev` launches: Vite stays alive, Rust compiles, the LibreCut window opens
-- `pnpm check` (TypeScript) passes
-- `pnpm build` (Vite production build) passes
-- `cargo check` (Rust) passes
-- `pnpm test` (Vitest unit tests) passes
+- `pnpm check` (TypeScript), `pnpm build`, and `cargo check` (Rust) pass
+- `pnpm test` passes the Vitest suites
+- `cargo test` passes the Rust suites, including real-media export and preview-frame checks
 - `pnpm test:e2e` renders real generated media through the FFmpeg export graph
-- FFmpeg 9 export spike passed: `-/filter_complex` script, overlay, drawtext, audio mix all render
 - Windows installers bundle `ffmpeg.exe` and `ffprobe.exe` as Tauri sidecars; `scripts/verify-installer.ps1` checks NSIS and MSI output
 
 Working today:
@@ -40,14 +38,14 @@ Working today:
 - Effect-pack plugins and broader editor plugins, with permissions and lifecycle controls
 - Built-in and custom project templates
 - Community preset packs: reviewed color filters and text styles, published under CC0-1.0 ([pack](presets/community/README.md))
-- H.264 export with size presets, NVENC or CPU encoding, AAC or ALAC audio, progress, and cancellation
+- H.264 export with size presets, NVENC or CPU encoding, AAC (96–320 kbps) or ALAC lossless audio at 44.1, 48, or 96 kHz, progress, and cancellation
 - Opt-in update checks and updates, with release notes
 - English, Spanish, and Brazilian Portuguese UI, keyboard shortcuts, and a local-first privacy model
 - Keyboard-operable editing and screen-reader announcements for progress, errors, and dialogs ([accessibility notes](docs/accessibility.md))
 
 Platform status:
 
-- Windows: development and installer workflows are implemented.
+- Windows: verified end to end; installers are built and checked by `scripts/verify-installer.ps1`.
 - macOS: Intel DMG build workflow is implemented.
 - Linux: Ubuntu 22.04 x64 DEB and AppImage build workflows are implemented.
 - macOS/Linux install, launch, editing, and export verification remains open. See [ROADMAP.md](ROADMAP.md).
@@ -128,7 +126,7 @@ ffmpeg / ffprobe
 ```
 
 - **Timeline timebase:** integer-friendly seconds in the UI, authoritative FFmpeg timestamps in export.
-- **Preview:** HTML media element pool → 2D canvas compositor → Web Audio graph (EQ → pan → compressor → gain).
+- **Preview:** HTML media element pool → 2D canvas compositor → Web Audio graph (EQ → pan → compressor → gain), with a **Match export** frame and an optional **Exact** playback mode rendered by the FFmpeg export graph.
 - **Proxies:** 720p/1080p H.264 copies are generated for 4K or non-web-friendly codecs so scrubbing stays responsive.
 - **Export:** overlay-by-timestamp filter graph; supports gaps, overlaps, speed, text, and mixed audio. Filters are written to a script file to avoid Windows command-line limits.
 - **Runtime tools:** `ffmpeg.exe` and `ffprobe.exe` are Tauri sidecars next to the app. Resolution order is `LIBRECUT_FFMPEG`/`LIBRECUT_FFPROBE`, bundled sidecar, then `PATH`.
@@ -179,6 +177,7 @@ If you find a bug, include:
 
 - **v0.2:** magnetic main track, ripple edits, speed ramps, offline model bundles, audio ducking and expanded EQ — landed
 - **v0.3:** effects, LUTs, templates, broader plugin API, opt-in auto-update, and macOS/Linux packaging workflows — implemented; platform verification remains
+- **v0.4:** export presets, render diagnostics, subtitles, proxy controls, and long-session resilience — landed
 - **v1.0:** performance hardening, accessibility, UI localization, documentation, community presets, and a pinned, reproducible FFmpeg runtime — released; see the [changelog](CHANGELOG.md)
 
 See [ROADMAP.md](ROADMAP.md) for details and current open work.

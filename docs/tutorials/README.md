@@ -7,10 +7,10 @@ button, field, and menu it mentions exists in the app.
 | Lesson | What you will do | Roughly |
 | --- | --- | --- |
 | [1. Import your media](01-import-media.md) | Create a project, bring in video, audio, and images, understand proxies | 10 minutes |
-| [2. Cut and edit](02-cut-and-edit.md) | Arrange clips on the timeline, trim, split, add transitions and effects | 20 minutes |
+| [2. Cut and edit](02-cut-and-edit.md) | Arrange clips on the timeline, multi-select, trim, split, and add transitions and effects | 20 minutes |
 | [3. Mix the audio](03-audio.md) | Set levels, pan, equalize, compress, duck, and automate a soundtrack | 15 minutes |
 | [4. Add titles and captions](04-titles-and-captions.md) | Style text, animate it, and import subtitles from `.srt` or `.vtt` | 15 minutes |
-| [5. Export the video](05-export.md) | Choose a size, a quality, and an encoder, and render the file | 10 minutes |
+| [5. Export the video](05-export.md) | Choose a size, quality, encoder, and audio encoding, and render the file | 10 minutes |
 
 ## How these lessons are written
 

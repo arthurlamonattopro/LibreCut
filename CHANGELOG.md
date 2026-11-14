@@ -3,7 +3,11 @@
 All notable changes to LibreCut are recorded here. The project follows
 [semantic versioning](https://semver.org/).
 
-## Unreleased
+## 1.1.0
+
+A workflow release on top of 1.0.0: deeper timeline editing, preview frames
+and playback rendered by the FFmpeg export graph, and selectable audio
+encoding.
 
 ### Added
 
@@ -18,6 +22,10 @@ All notable changes to LibreCut are recorded here. The project follows
 - **Exact playback quality**: a preview quality toggle renders the whole
   timeline with the FFmpeg export graph and plays the cached file back, so
   playback, scrubbing, and audio are the export instead of a second renderer.
+- **Interactive preview transform**: click a clip directly in the preview to
+  select it, drag it to move it, and drag a corner handle to scale it. A
+  rotation handle, hover outlines, and center snapping are included, and every
+  gesture is one undo step.
 - **Audio export settings**: the dialog offers AAC at 96-320 kbps or ALAC
   lossless, at 44.1, 48, or 96 kHz. The old AAC 192 kbps / 48 kHz stream is
   still the default, and saved presets keep the new settings.
@@ -27,12 +35,13 @@ All notable changes to LibreCut are recorded here. The project follows
 - Speed ramps retime video with the continuous curve instead of up to 120
   constant-speed steps, and use up to 600 audio segments targeting 20 ms /
   one-percent resolution. Fast ramps no longer sound stepped.
-
 - Ripple edits stay on the track they change instead of moving audio and text
   on other tracks.
 - The magnetic main track no longer reassigns itself on open or repacks after
   an ordinary move, trim, or delete. Ripple is respected when it is off.
 - Clips settle into the nearest free gap instead of overlapping.
+- Line breaks in titles export as line breaks; FFmpeg's drawtext used to paint
+  each one as the letter "n", so blank lines became a run of n's.
 - The timeline follows the playhead.
 - Undo restores the selection, playhead, zoom, and Snap/Ripple toggles, and
   selecting a clip no longer creates a history step.

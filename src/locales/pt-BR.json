@@ -861,5 +861,7 @@
   "Text preset {number} must be an object.": "A predefinição de texto {number} deve ser um objeto.",
   "Text preset {number} needs a name and sample text (up to 240 characters).": "A predefinição de texto {number} precisa de um nome e um texto de exemplo (até 240 caracteres).",
   "Plugin data could not be loaded.": "Não foi possível carregar os dados do plugin.",
-  "Subtitle cue": "Entrada de legenda"
+  "Subtitle cue": "Entrada de legenda",
+  "Move and scale clips on the preview": "Mover e dimensionar clipes na prévia",
+  "Drag the clip in the preview to move it, or use a corner handle to scale it.": "Arraste o clipe na prévia para movê-lo, ou use uma alça de canto para dimensioná-lo."
 }

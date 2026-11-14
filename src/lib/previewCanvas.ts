@@ -1,7 +1,7 @@
 import { clipValue } from "./animation";
 import { clipTransitionPlan, transitionAlpha, type ClipTransitionPlan } from "./transitions";
 import type { TimelineIndex } from "./timelineIndex";
-import type { ChromaKeyOptions, Clip, LutSettings, MaskPoint, Project } from "./types";
+import type { ChromaKeyOptions, Clip, LutSettings, MaskPoint, Project, TextOptions } from "./types";
 
 let lutPreviewCanvas: HTMLCanvasElement | undefined;
 
@@ -275,6 +275,11 @@ export function maskOverlayPoints(
   }).join(" ");
 }
 
+/** The canvas font of a text clip, shared with the preview transform overlay. */
+export function textFontOf(text: TextOptions): string {
+  return `${text.italic ? "italic " : ""}${text.fontWeight} ${text.size}px "${text.fontFamily}", "Segoe UI", sans-serif`;
+}
+
 /** Paints a text clip, including its outline, background, curve, and underline. */
 export function drawTextClip(ctx: CanvasRenderingContext2D, clip: Clip, project: Project, time: number) {
   const text = clip.text;
@@ -298,7 +303,7 @@ export function drawTextClip(ctx: CanvasRenderingContext2D, clip: Clip, project:
   ctx.strokeStyle = text.outlineColor;
   ctx.lineWidth = text.outlineWidth * 2;
   ctx.lineJoin = "round";
-  ctx.font = `${text.italic ? "italic " : ""}${text.fontWeight} ${text.size}px "${text.fontFamily}", "Segoe UI", sans-serif`;
+  ctx.font = textFontOf(text);
   ctx.textAlign = text.align;
   ctx.textBaseline = "middle";
   ctx.letterSpacing = `${text.characterSpacing}px`;

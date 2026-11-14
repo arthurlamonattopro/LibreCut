@@ -4,6 +4,7 @@ import { formatClock } from "../../../lib/time";
 import { useT } from "../../../lib/i18n";
 import type { CanvasBox } from "../../../lib/previewCanvas";
 import type { Clip, MaskPoint, Project } from "../../../lib/types";
+import { PreviewTransformOverlay } from "./PreviewTransformOverlay";
 
 export function PreviewStage({
   project,
@@ -281,6 +282,14 @@ export function PreviewStage({
             </>
           )}
         </div>
+      ) : null}
+      {project && !drawingCustomMask ? (
+        <PreviewTransformOverlay
+          project={project}
+          currentTime={currentTime}
+          canvasBox={canvasBox}
+          enabled={!drawingCustomMask}
+        />
       ) : null}
       {drawingCustomMask && canvasBox.width > 0 ? (
         <svg

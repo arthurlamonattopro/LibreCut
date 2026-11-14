@@ -691,6 +691,7 @@ function ClipInspector({
                 <RangeNumber label={t("Rotation")} value={clip.rotation} min={-1800} max={1800} step={1} suffix="°" onRecord={onRecord} onChange={(value) => onUpdate({ rotation: value }, false)} />
               </div>
               <p className="mt-1.5 text-[10px] text-dim">{t("Position is an offset from the canvas center, as a fraction of canvas size.")}</p>
+              <p className="mt-1 text-[10px] text-dim">{t("Drag the clip in the preview to move it, or use a corner handle to scale it.")}</p>
             </div>
           </>
         </TabPanel>
