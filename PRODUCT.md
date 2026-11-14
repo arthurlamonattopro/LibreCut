@@ -37,7 +37,7 @@ The product name is LibreCut. It is free and open source under GPL-3.0-only. The
 
 ## Evidence on Hand
 
-`RESUME.md` and `README.md` document the current product, capabilities, and verified development state. `CHANGELOG.md` records the 1.0.0 and 1.1.0 releases. No customer evidence or performance claims are established; the performance targets in `docs/performance.md` are goals, not measured claims.
+`RESUME.md` and `README.md` document the current product, capabilities, and verified development state. `CHANGELOG.md` records the 1.0.0, 1.1.0 and 1.1.1 releases. No customer evidence or performance claims are established; the performance targets in `docs/performance.md` are goals, not measured claims.
 
 ## Product Principles
 

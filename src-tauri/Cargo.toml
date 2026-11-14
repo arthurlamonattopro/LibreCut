@@ -1,6 +1,6 @@
 [package]
 name = "librecut"
-version = "1.1.0"
+version = "1.1.1"
 description = "LibreCut desktop application"
 authors = ["LibreCut contributors"]
 edition = "2021"

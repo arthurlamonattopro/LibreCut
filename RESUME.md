@@ -2,7 +2,7 @@
 
 LibreCut is a free, open-source, **local-first video editor** built with **Tauri 2 + React 19/TypeScript + Rust + FFmpeg**. Windows is the primary development platform; macOS and Linux packaging workflows are implemented, with hands-on verification still open. No account, no watermark, no telemetry; core editing and rendering happen locally. Optional cloud AI uses endpoints and API keys supplied by the user.
 
-The project is at **v1.1.0**. It covers the v0.1 editing loop, the v0.2 timeline and audio work, v0.3 effects and ecosystem features, the v0.4 media and rendering workflow, and the v1.1 editing and preview accuracy work: multi-select and track editing, export-accurate preview frames and playback, and selectable audio encoding. See [ROADMAP.md](ROADMAP.md) for the detailed feature and platform status.
+The project is at **v1.1.1**. It covers the v0.1 editing loop, the v0.2 timeline and audio work, v0.3 effects and ecosystem features, the v0.4 media and rendering workflow, and the v1.1 editing and preview accuracy work: multi-select and track editing, export-accurate preview frames and playback, and selectable audio encoding. See [ROADMAP.md](ROADMAP.md) for the detailed feature and platform status.
 
 ## What was built
 

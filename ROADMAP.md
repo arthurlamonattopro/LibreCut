@@ -143,7 +143,7 @@ based on preview feedback; this is a target, not a release-date commitment.
 
 ## v1.1 — editing depth and preview accuracy (released)
 
-These changes shipped in 1.1.0; see the [changelog](CHANGELOG.md).
+These changes shipped in 1.1.0 and 1.1.1; see the [changelog](CHANGELOG.md).
 
 - [x] Multi-select with `Ctrl`-click, `Shift`-click ranges, and rubber-band selection, plus bulk move, delete, duplicate, and split
 - [x] Track deletion and reordering, track-scoped ripple, and overlap-free clip placement

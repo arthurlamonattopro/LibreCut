@@ -3,6 +3,16 @@
 All notable changes to LibreCut are recorded here. The project follows
 [semantic versioning](https://semver.org/).
 
+## 1.1.1
+
+### Fixed
+
+- The desktop bundles open the app again. The uploaded landing page had
+  replaced the Vite/Tauri entry `index.html`, so the 1.1.0 builds served the
+  download page instead of the editor. The app entry is restored, and the
+  landing page now lives in `site/` and is published to GitHub Pages from
+  there.
+
 ## 1.1.0
 
 A workflow release on top of 1.0.0: deeper timeline editing, preview frames

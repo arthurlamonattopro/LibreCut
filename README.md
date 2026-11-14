@@ -8,7 +8,7 @@ LibreCut is a desktop editor built for fast, everyday cuts: import media, edit a
 
 ## Status
 
-**LibreCut 1.1.0** is the latest stable release (see the [changelog](CHANGELOG.md)). Windows is verified end to end; macOS and Linux packages still need hands-on verification on supported systems.
+**LibreCut 1.1.1** is the latest stable release (see the [changelog](CHANGELOG.md)). Windows is verified end to end; macOS and Linux packages still need hands-on verification on supported systems.
 
 Verified today:
 
