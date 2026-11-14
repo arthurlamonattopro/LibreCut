@@ -18,8 +18,15 @@ All notable changes to LibreCut are recorded here. The project follows
 - **Exact playback quality**: a preview quality toggle renders the whole
   timeline with the FFmpeg export graph and plays the cached file back, so
   playback, scrubbing, and audio are the export instead of a second renderer.
+- **Audio export settings**: the dialog offers AAC at 96-320 kbps or ALAC
+  lossless, at 44.1, 48, or 96 kHz. The old AAC 192 kbps / 48 kHz stream is
+  still the default, and saved presets keep the new settings.
 
 ### Fixed
+
+- Speed ramps retime video with the continuous curve instead of up to 120
+  constant-speed steps, and use up to 600 audio segments targeting 20 ms /
+  one-percent resolution. Fast ramps no longer sound stepped.
 
 - Ripple edits stay on the track they change instead of moving audio and text
   on other tracks.

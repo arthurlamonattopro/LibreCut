@@ -109,6 +109,9 @@ fn request(clips: Vec<ExportClip>, duration: f64) -> ExportRequest {
         // Use the highest quality available so the comparison measures the
         // graphs, not x264's quantiser.
         quality: Some("high".to_string()),
+        audio_codec: None,
+        audio_bitrate: None,
+        audio_sample_rate: None,
     }
 }
 

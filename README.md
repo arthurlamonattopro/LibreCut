@@ -40,7 +40,7 @@ Working today:
 - Effect-pack plugins and broader editor plugins, with permissions and lifecycle controls
 - Built-in and custom project templates
 - Community preset packs: reviewed color filters and text styles, published under CC0-1.0 ([pack](presets/community/README.md))
-- H.264/AAC export with size presets, NVENC or CPU encoding, progress, and cancellation
+- H.264 export with size presets, NVENC or CPU encoding, AAC or ALAC audio, progress, and cancellation
 - Opt-in update checks and updates, with release notes
 - English, Spanish, and Brazilian Portuguese UI, keyboard shortcuts, and a local-first privacy model
 - Keyboard-operable editing and screen-reader announcements for progress, errors, and dialogs ([accessibility notes](docs/accessibility.md))

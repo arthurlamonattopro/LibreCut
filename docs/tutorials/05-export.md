@@ -1,14 +1,14 @@
 # 5. Export the video
 
-This lesson covers the export dialog: choosing a size and a quality, picking
-an encoder, rendering the file, and reading the diagnostics when something
-differs from the preview.
+This lesson covers the export dialog: choosing a size and a quality, picking an
+encoder and audio settings, rendering the file, and reading the diagnostics
+when something differs from the preview.
 
 ## Open the export dialog
 
 Press `Ctrl+E`, or the **Export** button in the top right. The dialog opens
-with the description *Choose a size and render a clean H.264 MP4. Audio is
-mixed to AAC.*
+with the description *Choose a size and audio settings, then render a clean
+H.264 MP4.*
 
 You need at least one clip on the timeline. If the timeline is empty, the
 dialog says *Add at least one clip to the timeline before exporting.*
@@ -48,14 +48,35 @@ rough guess based on the frame size and the quality, not on your footage:
 *Estimate uses frame size and quality. Motion, detail, and audio can change
 the final size.*
 
+## Choose the audio
+
+The **Audio** group has three lists:
+
+| List | Choices |
+| --- | --- |
+| **Codec** | AAC (plays everywhere) or ALAC · lossless |
+| **Bitrate** | 96, 128, 192, 256, or 320 kbps for AAC; **Lossless** for ALAC |
+| **Sample rate** | 44.1, 48, or 96 kHz |
+
+The default is AAC at 192 kbps and 48 kHz: a small file that every player
+understands. Choose a higher AAC bitrate for dense music, or ALAC when you
+want an untouched stream for further editing. The bitrate list is disabled for
+ALAC because a lossless stream sizes itself from the sample rate. Audio is
+always stereo; the mix itself is built at 48 kHz, so changing the sample rate
+only changes the encoded output.
+
+The note under the lists says: *AAC is the compatible choice. ALAC is
+lossless, so its bitrate follows the sample rate instead of the selector.*
+
 ## Save these settings for next time
 
 Type a name into the **Name these settings** field and press **Save preset**.
-The preset remembers the size, the frame rate, the quality, and the encoder.
-It appears as a chip above the **Size** group; click a chip to load it.
+The preset remembers the size, the frame rate, the quality, the encoder, and
+the audio settings. It appears as a chip above the **Size** group; click a chip
+to load it.
 
-Saved presets live on this PC only: *Saved on this PC: resolution, frame
-rate, quality, and encoder.* The output path is not part of a preset.
+Saved presets live on this PC only: *Saved on this PC: resolution, frame rate,
+quality, encoder, and audio settings.* The output path is not part of a preset.
 
 To remove one, type its exact name into the field and press **Remove**.
 
@@ -94,8 +115,8 @@ Pressing **Cancel export** stops FFmpeg and deletes the partial file, so the
 destination is never left with a half-written video.
 
 When the render finishes, the dialog shows **Video exported**, the output
-path, the render time, and three tiles: **Canvas**, **Duration**, and
-**Encoder**. Press **Show in folder** to open the folder, or **Done** to
+path, the render time, and four tiles: **Canvas**, **Duration**, **Encoder**,
+and **Audio**. Press **Show in folder** to open the folder, or **Done** to
 close.
 
 ## Hear and see the render before you render
@@ -141,7 +162,8 @@ It reports:
 
 - **Container:** MP4.
 - **Video:** H.264, `yuv420p`, constant frame rate.
-- **Audio:** AAC, 192 kbps, 48 kHz, stereo.
+- **Audio:** AAC at 96, 128, 192, 256, or 320 kbps, or ALAC (lossless), at
+  44.1, 48, or 96 kHz, stereo. The default is AAC at 192 kbps and 48 kHz.
 - The file is written to a hidden temporary name in the destination folder and
   renamed into place only after FFmpeg succeeds, so a cancelled or failed
   export never replaces a good file with a broken one.
@@ -154,8 +176,9 @@ bar. Open **Render diagnostics** and read the frame-rate line. Then switch to
 
 ## Gotchas
 
-- **The export always produces H.264 in MP4.** There is no choice of codec,
-  container, audio format, bitrate, or colour depth.
+- **The export always produces H.264 in MP4.** The video codec, container,
+  and colour depth are fixed; the audio codec, bitrate, and sample rate are
+  chosen in the dialog.
 - **The estimate is an estimate.** A lot of motion or a lot of detail makes
   the file larger than the number suggests.
 - **A long export cannot be resumed.** If it fails near the end, the

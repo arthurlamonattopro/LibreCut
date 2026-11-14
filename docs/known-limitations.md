@@ -135,16 +135,28 @@ rate before importing it.
 
 ## Audio
 
-**The export is AAC at 192 kbps, 48 kHz, stereo.** There is no choice of
-audio codec, bitrate, or sample rate.
+**Audio encoding is chosen per export.** The default is AAC at 192 kbps,
+48 kHz, stereo, and the export dialog also offers ALAC (lossless) and 96, 128,
+256, and 320 kbps AAC at 44.1, 48, or 96 kHz. The mix itself is always built at
+48 kHz stereo; the output sample rate only changes the encoded stream.
 
-**A speed ramp is approximated.** The export renders a ramp as up to 120
-constant-speed segments, so a fast ramp can sound slightly stepped.
+**A speed ramp is exact for picture and finely sampled for sound.** Video is
+retimed with the continuous ramp curve, so a ramp is not broken into
+constant-speed steps. `atempo` can only hold one factor at a time, so the audio
+is split into up to 600 segments, targeting twenty milliseconds per segment and
+steps no larger than one percent of speed. A ramp longer than about twelve
+seconds reaches the segment cap and gets slightly coarser towards its end, but
+it stays far below the audible stepping the earlier 120-segment export
+produced.
 
-**Ducking follows the other tracks.** It reacts to whatever else is playing
-above the threshold, not to a specific clip.
+**Ducking keys on the other audible tracks.** It reacts to whatever else is
+playing above the threshold, not to one selected clip. To duck under a single
+voice, keep the music on its own ducking track and put only that voice above
+the threshold; see [the audio lesson](tutorials/03-audio.md#duck-the-music).
 
-**A muted track is silent in the preview and in the export.**
+**Muting a track silences it in the preview and in the export.** This is
+intended: mute is a property of the track, not a preview-only switch. To
+silence one clip, lower its volume to zero instead.
 
 ## Text
 
@@ -165,9 +177,9 @@ restyled, but they are no longer linked to the original `.srt` file.
 
 ## The export
 
-**There is one output format.** MP4, H.264, `yuv420p`, constant frame rate,
-AAC audio. No choice of container, codec, bitrate, colour depth, or alpha
-channel.
+**There is one video output format.** MP4, H.264, `yuv420p`, constant frame
+rate. The container, video codec, colour depth, and alpha channel are fixed;
+the audio codec, bitrate, and sample rate are chosen in the export dialog.
 
 **Two exports cannot run at once.** The second is refused with
 `An export is already running.`

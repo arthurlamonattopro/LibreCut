@@ -83,13 +83,15 @@ filters and 100 text styles, and must request no permissions.
 
 ## What the export writes
 
-The export has one output format. There is no choice of container or codec.
+The export has one container and one video codec. The audio encoding is
+chosen in the export dialog.
 
 | | |
 | --- | --- |
 | Container | MP4 |
 | Video | H.264 (`libx264` by default), `yuv420p`, constant frame rate |
-| Audio | AAC, 192 kbps, 48 kHz, stereo |
+| Audio | AAC (96, 128, 192, 256, or 320 kbps) or ALAC lossless; 44.1, 48, or 96 kHz; stereo |
+| Audio default | AAC, 192 kbps, 48 kHz, stereo |
 | Quality | CRF 27 (draft), 20 (balanced), 16 (high) |
 
 Hardware encoders `h264_nvenc`, `h264_qsv`, and `h264_amf` exist in the

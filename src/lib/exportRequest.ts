@@ -1,6 +1,7 @@
 import { projectDuckingSegments } from "./audio";
 import { cachedProjectDuration } from "./time";
 import type {
+  ExportAudioSettings,
   ExportClipRequest,
   ExportEffectRequest,
   ExportRequest,
@@ -9,6 +10,16 @@ import type {
 } from "./types";
 
 export type ExportEncoder = "libx264" | "nvenc";
+
+/**
+ * Defaults for the audio stream. AAC at 192 kbps and 48 kHz is the safe choice
+ * that plays everywhere; the export dialog lets the user change all three.
+ */
+export const DEFAULT_EXPORT_AUDIO: ExportAudioSettings = {
+  codec: "aac",
+  bitrate: 192,
+  sampleRate: 48000,
+};
 
 /**
  * Translates the editor's project model into the export request the Rust
@@ -25,6 +36,7 @@ export function buildExportRequest(
   width: number,
   height: number,
   encoder: ExportEncoder = "libx264",
+  audio: ExportAudioSettings = DEFAULT_EXPORT_AUDIO,
 ): ExportRequest {
   const clips: ExportClipRequest[] = [];
   const ducking = projectDuckingSegments(project);
@@ -189,6 +201,9 @@ export function buildExportRequest(
     texts,
     effects,
     encoder,
+    audioCodec: audio.codec,
+    audioBitrate: audio.bitrate,
+    audioSampleRate: audio.sampleRate,
   };
 }
 
@@ -198,11 +213,15 @@ export function buildExportRequest(
  * Used to tell whether a rendered preview still matches the project. The
  * output path is ignored, so changing *where* a file goes does not invalidate
  * the preview; anything that changes the pixels (including invisible settings
- * like frame rate) does.
+ * like frame rate) does. Audio encoding only affects the container, not the
+ * rendered frames, so the preview key ignores it as well.
  */
 export function previewRenderKey(request: ExportRequest): string {
   const rest: Partial<ExportRequest> = { ...request };
   delete rest.output;
+  delete rest.audioCodec;
+  delete rest.audioBitrate;
+  delete rest.audioSampleRate;
   const json = JSON.stringify(rest);
   let hash = 0x811c9dc5 >>> 0;
   for (let index = 0; index < json.length; index += 1) {

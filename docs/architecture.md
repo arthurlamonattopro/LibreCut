@@ -174,10 +174,14 @@ Why:
 
 - Gaps and overlaps are natural — there is no requirement for contiguous clips.
 - Audio-only clips and image clips are handled with the same model.
-- Speed uses `setpts` for video and chained `atempo` for audio.
+- Speed uses an exact inverse of the linear ramp curve in `setpts` for video,
+  and finely sampled `atempo` segments for audio, which can only hold a
+  constant stretch factor.
 - Ducking is a volume envelope on the project timeline, applied after `adelay`
   so the expression can address absolute time. The renderer computes the same
   envelope, so preview and export agree.
+- The mix is rendered at 48 kHz stereo and encoded at the chosen output rate
+  and codec, so changing the export audio settings never changes the edit.
 
 The Rust side is split by responsibility: `export.rs` holds the Tauri state and
 commands, `export/model.rs` the request types, `export/filters.rs` the filter

@@ -408,6 +408,17 @@ export interface ExportEffectRequest extends ColorEffectOptions {
   lut?: LutSettings;
 }
 
+export type ExportAudioCodec = "aac" | "alac";
+
+/** Audio encoding for the exported file, separate from the project itself. */
+export interface ExportAudioSettings {
+  codec: ExportAudioCodec;
+  /** Target bitrate in kbps. Lossless codecs ignore it. */
+  bitrate: number;
+  /** Output sample rate in hertz. */
+  sampleRate: number;
+}
+
 export interface ExportRequest {
   output: string;
   width: number;
@@ -419,6 +430,9 @@ export interface ExportRequest {
   effects: ExportEffectRequest[];
   encoder?: "libx264" | "nvenc" | "qsv" | "amf";
   quality?: "draft" | "balanced" | "high";
+  audioCodec?: ExportAudioCodec;
+  audioBitrate?: number;
+  audioSampleRate?: number;
 }
 
 export interface ExportResult {

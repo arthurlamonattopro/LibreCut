@@ -101,6 +101,9 @@ fn request(clips: Vec<ExportClip>, duration: f64) -> ExportRequest {
         effects: Vec::new(),
         encoder: None,
         quality: None,
+        audio_codec: None,
+        audio_bitrate: None,
+        audio_sample_rate: None,
     }
 }
 

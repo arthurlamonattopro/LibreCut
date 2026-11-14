@@ -230,6 +230,9 @@ fn request(output: &Path, clips: Vec<ExportClip>, duration: f64) -> ExportReques
         }],
         encoder: Some("libx264".to_string()),
         quality: Some("draft".to_string()),
+        audio_codec: None,
+        audio_bitrate: None,
+        audio_sample_rate: None,
     }
 }
 

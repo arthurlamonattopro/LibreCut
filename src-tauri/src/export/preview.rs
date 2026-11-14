@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use super::filters::{normalize_speed_ramp, speed_segments};
+use super::filters::{normalize_speed_ramp, speed_source_offset};
 use super::graph::build_graph;
 use super::model::*;
 use super::render::{prepare_lut_files, LutFileCleanup};
@@ -275,6 +275,9 @@ fn frame_request(request: &ExportRequest, time: f64) -> (ExportRequest, f64, Vec
             effects,
             encoder: None,
             quality: None,
+            audio_codec: None,
+            audio_bitrate: None,
+            audio_sample_rate: None,
         },
         local_time,
         seeks,
@@ -290,12 +293,9 @@ fn source_end(clip: &ExportClip) -> f64 {
     if clip.is_image {
         return 0.0;
     }
-    let segments = speed_segments(&clip.speed_ramp, clip.duration);
-    if normalize_speed_ramp(&clip.speed_ramp, clip.duration).len() >= 2 {
-        segments
-            .last()
-            .map(|segment| segment.source_start + segment.source_duration)
-            .unwrap_or(clip.duration)
+    let ramp = normalize_speed_ramp(&clip.speed_ramp, clip.duration);
+    if ramp.len() >= 2 {
+        speed_source_offset(&ramp, clip.duration)
     } else {
         clip.duration * clip.speed.clamp(0.25, 4.0)
     }
@@ -417,6 +417,9 @@ mod tests {
             effects: Vec::new(),
             encoder: None,
             quality: None,
+            audio_codec: None,
+            audio_bitrate: None,
+            audio_sample_rate: None,
         }
     }
 

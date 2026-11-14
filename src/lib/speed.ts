@@ -107,9 +107,10 @@ export function sourceDurationAt(points: SpeedPoint[] | undefined, duration: num
 }
 
 /**
- * Approximates a ramp as constant-speed segments. Used by the FFmpeg graph,
- * where a piecewise-constant speed can be expressed with `setpts`/`atempo`.
- * Sampling resolution is bounded so long clips do not explode the graph.
+ * Approximates a ramp as constant-speed segments. The FFmpeg audio graph can
+ * only hold a constant `atempo` per segment, so the sampling follows the curve:
+ * it targets one percent of speed and twenty milliseconds of timeline, capped
+ * at 600 segments. The video graph uses the exact continuous curve instead.
  */
 export function rampSegments(points: SpeedPoint[] | undefined, duration: number): SpeedSegment[] {
   const safeDuration = Math.max(0.05, duration);
@@ -118,7 +119,10 @@ export function rampSegments(points: SpeedPoint[] | undefined, duration: number)
     return [{ start: 0, duration: safeDuration, speed: 1, sourceStart: 0, sourceDuration: safeDuration }];
   }
 
-  const sampleCount = Math.min(120, Math.max(ramp.length - 1, Math.ceil(safeDuration / 0.08)));
+  const speedSpan = ramp.slice(1).reduce((sum, point, index) => sum + Math.abs(point.speed - ramp[index].speed), 0);
+  const byChange = Math.ceil(speedSpan / 0.01);
+  const byTime = Math.ceil(safeDuration / 0.02);
+  const sampleCount = Math.min(600, Math.max(ramp.length - 1, byChange, byTime, 1));
   const step = safeDuration / sampleCount;
   const segments: SpeedSegment[] = [];
   let sourceCursor = 0;

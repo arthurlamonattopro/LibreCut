@@ -24,7 +24,7 @@ The v0.1 development preview runs as a Windows desktop app using Tauri 2. Users 
 
 ## Capabilities and Constraints
 
-- The current editor supports media import, video/audio/text/misc tracks, clip move/trim/split/duplicate/delete, snapping, zoom, undo/redo, preview compositing, clip transforms, transitions, keyframes, color effects, audio controls, and H.264/AAC MP4 export with progress and cancellation.
+- The current editor supports media import, video/audio/text/misc tracks, clip move/trim/split/duplicate/delete, snapping, zoom, undo/redo, preview compositing, clip transforms, transitions, keyframes, color effects, audio controls, and H.264 MP4 export with AAC or ALAC audio, progress, and cancellation.
 - Projects autosave locally; users can save a `.librecut` project copy.
 - Windows is the v0.1 focus. The frontend uses React 19, TypeScript, Zustand, and Tailwind CSS; the desktop shell uses Tauri 2 and Rust.
 - Speed ramps, LUTs, chroma key, auto-captions, cloud sync, and mobile are outside v0.1.

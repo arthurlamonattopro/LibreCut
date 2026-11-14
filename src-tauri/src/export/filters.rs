@@ -146,23 +146,33 @@ fn speed_at(ramp: &[(f64, f64)], time: f64) -> f64 {
     ramp.last().map(|point| point.1).unwrap_or(1.0)
 }
 
+/// How finely a ramp is split for the audio graph. Video uses the continuous
+/// curve below; `atempo` can only hold a constant factor, so audio is sampled.
+const RAMP_SEGMENT_SECONDS: f64 = 0.02;
+const RAMP_SPEED_STEP: f64 = 0.01;
+const MAX_RAMP_SEGMENTS: usize = 600;
+
 pub(super) fn speed_segments(points: &[ExportSpeedPoint], duration: f64) -> Vec<SpeedSegment> {
     let safe_duration = duration.max(0.05);
     let ramp = normalize_speed_ramp(points, safe_duration);
     if ramp.len() < 2 {
         return vec![SpeedSegment {
-            output_start: 0.0,
             speed: 1.0,
             source_start: 0.0,
             source_duration: safe_duration,
         }];
     }
 
-    let sample_count = 120.min(
-        (ramp.len() - 1)
-            .max((safe_duration / 0.08).ceil() as usize)
-            .max(1),
-    );
+    // Sampling follows the curve rather than the clock alone: a fast ramp gets
+    // short segments where the speed moves, targeting one percent of speed and
+    // twenty milliseconds of output time, capped at MAX_RAMP_SEGMENTS.
+    let speed_span: f64 = ramp
+        .windows(2)
+        .map(|pair| (pair[1].1 - pair[0].1).abs())
+        .sum();
+    let by_change = (speed_span / RAMP_SPEED_STEP).ceil() as usize;
+    let by_time = (safe_duration / RAMP_SEGMENT_SECONDS).ceil() as usize;
+    let sample_count = MAX_RAMP_SEGMENTS.min((ramp.len() - 1).max(by_change).max(by_time).max(1));
     let step = safe_duration / sample_count as f64;
     let mut segments = Vec::with_capacity(sample_count);
     let mut source_cursor = 0.0;
@@ -177,7 +187,6 @@ pub(super) fn speed_segments(points: &[ExportSpeedPoint], duration: f64) -> Vec<
         let segment_duration = end - start;
         let source_duration = speed * segment_duration;
         segments.push(SpeedSegment {
-            output_start: start,
             speed,
             source_start: source_cursor,
             source_duration,
@@ -187,24 +196,99 @@ pub(super) fn speed_segments(points: &[ExportSpeedPoint], duration: f64) -> Vec<
     segments
 }
 
-/// `setpts` expression in seconds that maps trimmed source time back to output
-/// time for a piecewise-constant speed curve.
-pub(super) fn speed_setpts_expr(segments: &[SpeedSegment]) -> String {
-    let Some(last) = segments.last() else {
-        return "0".to_string();
-    };
-    let mut expr = format!(
-        "{:.6}+((T-STARTT)-{:.6})/{:.6}",
-        last.output_start, last.source_start, last.speed
+/// Source seconds consumed by the ramp from the clip start to `time`.
+pub(super) fn speed_source_offset(ramp: &[(f64, f64)], time: f64) -> f64 {
+    let mut source = 0.0;
+    for pair in ramp.windows(2) {
+        let (from_time, from_speed) = pair[0];
+        let (to_time, to_speed) = pair[1];
+        if time <= from_time {
+            break;
+        }
+        let end = time.min(to_time);
+        let span = (end - from_time).max(0.0);
+        if span <= 0.0 {
+            continue;
+        }
+        let span_total = (to_time - from_time).max(1e-6);
+        let slope = (to_speed - from_speed) / span_total;
+        source += from_speed * span + 0.5 * slope * span * span;
+        if time <= to_time {
+            break;
+        }
+    }
+    source
+}
+
+/// Inverse of [`speed_source_offset`] for one linear ramp interval: the output
+/// time at which the given amount of source has been consumed.
+fn interval_inverse(
+    from_time: f64,
+    from_speed: f64,
+    to_speed: f64,
+    source_start: f64,
+    span: f64,
+) -> String {
+    let slope = (to_speed - from_speed) / span.max(1e-6);
+    let source = format!("((T-STARTT)-{source_start:.6})");
+    if slope.abs() < 1e-6 {
+        format!("{from_time:.6}+({source})/{from_speed:.6}")
+    } else {
+        // Solve source = s0*d + slope*d^2/2 for d, the time into the interval.
+        format!(
+            "{from_time:.6}+(sqrt({from_speed:.6}*{from_speed:.6}+2*({slope:.6})*({source}))-{from_speed:.6})/({slope:.6})"
+        )
+    }
+}
+
+/// `setpts` expression that maps trimmed source time back to output time for
+/// the continuous, linearly interpolated speed curve.
+///
+/// A ramp is linear between its points, so each interval inverts exactly with
+/// one quadratic expression. The graph therefore carries one branch per ramp
+/// point, not a fixed number of constant-speed steps.
+pub(super) fn speed_setpts_expr(ramp: &[(f64, f64)]) -> String {
+    if ramp.len() < 2 {
+        return "(T-STARTT)".to_string();
+    }
+
+    let mut source_starts = Vec::with_capacity(ramp.len());
+    source_starts.push(0.0);
+    let mut source = 0.0;
+    for pair in ramp.windows(2) {
+        let (from_time, from_speed) = pair[0];
+        let (to_time, to_speed) = pair[1];
+        source += (from_speed + to_speed) * 0.5 * (to_time - from_time).max(0.0);
+        source_starts.push(source);
+    }
+
+    let last = ramp.len() - 2;
+    let mut expr = interval_inverse(
+        ramp[last].0,
+        ramp[last].1,
+        ramp[last + 1].1,
+        source_starts[last],
+        ramp[last + 1].0 - ramp[last].0,
     );
-    for segment in segments.iter().rev().skip(1) {
-        let source_end = segment.source_start + segment.source_duration;
+    for index in (0..last).rev() {
+        let interval = interval_inverse(
+            ramp[index].0,
+            ramp[index].1,
+            ramp[index + 1].1,
+            source_starts[index],
+            ramp[index + 1].0 - ramp[index].0,
+        );
         expr = format!(
-            "if(lt((T-STARTT),{source_end:.6}),{:.6}+((T-STARTT)-{:.6})/{:.6},{expr})",
-            segment.output_start, segment.source_start, segment.speed
+            "if(lt((T-STARTT),{:.6}),{interval},{expr})",
+            source_starts[index + 1]
         );
     }
-    expr
+    let end_time = ramp[last + 1].0;
+    let end_speed = ramp[last + 1].1;
+    let end_source = source_starts[last + 1];
+    format!(
+        "if(lt((T-STARTT),{end_source:.6}),{expr},{end_time:.6}+((T-STARTT)-{end_source:.6})/{end_speed:.6})"
+    )
 }
 
 pub(super) fn escape_text(text: &str) -> String {

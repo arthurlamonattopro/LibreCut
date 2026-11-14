@@ -121,6 +121,9 @@ fn request(clips: Vec<ExportClip>, duration: f64) -> ExportRequest {
         effects: Vec::new(),
         encoder: Some("libx264".to_string()),
         quality: Some("draft".to_string()),
+        audio_codec: None,
+        audio_bitrate: None,
+        audio_sample_rate: None,
     }
 }
 
@@ -193,7 +196,7 @@ fn a_gap_between_two_clips_has_no_transition() {
 }
 
 #[test]
-fn a_speed_ramp_becomes_a_piecewise_setpts_and_atempo() {
+fn a_speed_ramp_becomes_a_continuous_setpts_and_atempo() {
     let mut clip = video_clip(Path::new("source.mp4"));
     clip.duration = 4.0;
     clip.speed_ramp = vec![
@@ -211,6 +214,9 @@ fn a_speed_ramp_becomes_a_piecewise_setpts_and_atempo() {
     // The expression is quoted: a comma inside it would otherwise end the
     // filter and FFmpeg would not find the filter at all.
     assert!(graph.contains("setpts='(if(lt((T-STARTT),"));
+    // The inverse of a linear ramp is quadratic, so the picture is retimed
+    // continuously instead of in constant-speed steps.
+    assert!(graph.contains("sqrt("));
     assert!(graph.contains("asplit="));
     assert!(graph.contains("concat=n="));
     assert!(graph.contains("atempo="));
@@ -474,6 +480,32 @@ async fn renders_a_timeline_with_a_speed_ramp() {
         "duration {}",
         info.duration
     );
+}
+
+#[tokio::test]
+async fn renders_the_requested_audio_codec_and_sample_rate() {
+    if skip_without_ffmpeg().await {
+        return;
+    }
+    let temp = TempDir::new("audio-settings");
+    let source = make_video(temp.path(), "source.mp4", 2).await;
+    let output = temp.path().join("lossless.mp4");
+
+    let mut req = request(vec![video_clip(&source)], 2.0);
+    req.output = output.to_string_lossy().to_string();
+    req.audio_codec = Some("alac".to_string());
+    req.audio_bitrate = Some(320);
+    req.audio_sample_rate = Some(44100);
+    let cancel = AtomicBool::new(false);
+    render_with_progress(&req, temp.path(), &cancel, &|_progress| {})
+        .await
+        .expect("export lossless audio");
+
+    let info = media::probe(&output)
+        .await
+        .expect("probe the exported video");
+    assert_eq!(info.audio_codec.as_deref(), Some("alac"));
+    assert_eq!(info.sample_rate, 44100);
 }
 
 #[tokio::test]

@@ -91,9 +91,12 @@ export function duckKeyRegions(project: Project, target: Track): TimeRegion[] {
     if (track.id === target.id) continue;
     if (track.muted || track.hidden) continue;
     if (track.ducking?.enabled) continue;
+    const trackVolume = track.volume ?? 1;
     for (const clip of track.clips) {
       if (!clip.assetId || !audibleAssets.has(clip.assetId)) continue;
-      if (gainToDb(clip.volume) < threshold) continue;
+      // The threshold is about what is actually heard, so the key clip is
+      // measured after its own level and the track level are applied.
+      if (gainToDb(clip.volume * trackVolume) < threshold) continue;
       regions.push({ start: clip.start, end: clip.start + clip.duration });
     }
   }

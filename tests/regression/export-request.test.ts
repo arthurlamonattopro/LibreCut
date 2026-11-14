@@ -113,6 +113,23 @@ describe("export request regression", () => {
     expect(request.clips[0].hasAudio).toBe(false);
   });
 
+  it("carries the chosen audio encoding into the request", () => {
+    const project = loadFixture("v0.1-minimal.librecut");
+    const defaults = buildExportRequest(project, "out.mp4", 1920, 1080);
+    expect(defaults.audioCodec).toBe("aac");
+    expect(defaults.audioBitrate).toBe(192);
+    expect(defaults.audioSampleRate).toBe(48000);
+
+    const lossless = buildExportRequest(project, "out.mp4", 1920, 1080, "libx264", {
+      codec: "alac",
+      bitrate: 320,
+      sampleRate: 44100,
+    });
+    expect(lossless.audioCodec).toBe("alac");
+    expect(lossless.audioBitrate).toBe(320);
+    expect(lossless.audioSampleRate).toBe(44100);
+  });
+
   it("keys the preview render by the picture, not the output path", () => {
     const project = loadFixture("v0.1-minimal.librecut");
     const first = buildExportRequest(project, "first.mp4", 1920, 1080);
@@ -127,5 +144,13 @@ describe("export request regression", () => {
     const nudged = buildExportRequest(project, "second.mp4", 1920, 1080);
     nudged.clips[0].trimIn = 0.5;
     expect(previewRenderKey(first)).not.toBe(previewRenderKey(nudged));
+
+    // Audio encoding changes the container, not the rendered frames.
+    const differentAudio = buildExportRequest(project, "second.mp4", 1920, 1080, "libx264", {
+      codec: "alac",
+      bitrate: 320,
+      sampleRate: 44100,
+    });
+    expect(previewRenderKey(first)).toBe(previewRenderKey(differentAudio));
   });
 });

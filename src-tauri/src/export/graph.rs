@@ -48,15 +48,11 @@ pub fn build_graph(request: &ExportRequest) -> String {
         } else {
             normalize_speed_ramp(&clip.speed_ramp, clip_duration)
         };
-        let segments = if speed_ramp.len() >= 2 {
-            speed_segments(&clip.speed_ramp, clip_duration)
+        let ramped = speed_ramp.len() >= 2;
+        let source_duration = if ramped {
+            speed_source_offset(&speed_ramp, clip_duration)
         } else {
-            Vec::new()
-        };
-        let source_duration = if segments.is_empty() {
             clip_duration * speed
-        } else {
-            segments.iter().map(|segment| segment.source_duration).sum()
         };
         let trim = clip.trim_in.max(0.0);
         let fit = clip.fit.as_deref().unwrap_or("contain");
@@ -71,12 +67,12 @@ pub fn build_graph(request: &ExportRequest) -> String {
         };
         let timing = if clip.is_image {
             format!("trim=duration={clip_duration:.3},setpts=PTS-STARTPTS+{start:.3}/TB")
-        } else if segments.is_empty() {
+        } else if !ramped {
             format!(
                 "trim=start={trim:.3}:duration={source_duration:.3},setpts=(PTS-STARTPTS)/{speed:.4}+{start:.3}/TB"
             )
         } else {
-            let expr = speed_setpts_expr(&segments);
+            let expr = speed_setpts_expr(&speed_ramp);
             format!(
                 "trim=start={trim:.3}:duration={source_duration:.3},setpts={}",
                 quoted(&format!("({expr})/TB+{start:.3}/TB"))
@@ -145,10 +141,10 @@ pub fn build_graph(request: &ExportRequest) -> String {
         positions.insert(index, (x_expr, y_expr));
         // The chain only holds as much material as the source has. A source
         // that is shorter than the clip ends the chain early.
-        let chain_end = if segments.is_empty() {
-            start + source_duration / speed
-        } else {
+        let chain_end = if ramped {
             start + clip_duration
+        } else {
+            start + source_duration / speed
         };
         chain_ends.insert(index, chain_end);
 
@@ -539,10 +535,7 @@ pub fn build_graph(request: &ExportRequest) -> String {
             let ramp = normalize_speed_ramp(&clip.speed_ramp, clip_duration);
             let ramp_active = ramp.len() >= 2;
             let source_duration = if ramp_active {
-                speed_segments(&clip.speed_ramp, clip_duration)
-                    .iter()
-                    .map(|segment| segment.source_duration)
-                    .sum()
+                speed_source_offset(&ramp, clip_duration)
             } else {
                 clip_duration * speed
             };

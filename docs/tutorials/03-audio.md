@@ -156,11 +156,12 @@ Two things to know:
 ## What the export does to your mix
 
 - Audio is mixed to a single stereo track at 48 kHz.
-- The export is AAC at 192 kbps. There is no choice of audio codec or
-  bitrate.
+- The export dialog offers AAC at 96, 128, 192, 256, or 320 kbps and ALAC
+  (lossless), at 44.1, 48, or 96 kHz. The default is AAC, 192 kbps, 48 kHz.
 - Speed changes keep the pitch steady on ordinary clips.
-- A speed ramp is approximated with up to 120 constant-speed segments, so a
-  fast ramp can sound slightly stepped.
+- A speed ramp retimes the picture continuously. The audio side uses up to 600
+  segments, targeting twenty milliseconds and one percent of speed, instead of
+  the coarser steps the earlier 120-segment approximation produced.
 
 ## Try this
 
@@ -171,14 +172,15 @@ lower the music track to 60%.
 
 ## Gotchas
 
-- **A muted track is silent in the preview and in the export.** If you can
-  hear a track that you muted, check that you muted the track and not just
-  the clip.
+- **A muted track is silent in the preview and in the export.** That is what
+  mute means. If you can hear a track that you muted, check that you muted the
+  track and not just the clip.
 - **Pitch and speed are different.** Changing **Pitch** shifts the pitch and
   keeps the duration. Changing **Speed** changes the duration and keeps the
   pitch.
-- **Ducking follows the other tracks, not a specific clip.** It reacts to
-  whatever else is playing above the threshold.
+- **Ducking follows the other audible tracks, not a specific clip.** It
+  reacts to whatever else is playing above the threshold. To duck under one
+  voice, keep that voice alone above the threshold.
 - **AI models download on first use.** "Local" means the model runs on your
   machine, not that it is already installed.
 - **The **Offline model bundles** counter only sees the models folder**, not

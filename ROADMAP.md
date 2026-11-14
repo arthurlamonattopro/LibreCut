@@ -23,7 +23,7 @@ a promise. Priorities can change based on community feedback.
 - [x] Optional cloud AI through user-provided endpoints and API keys
 - [x] Local image background removal
 - [x] Effect-pack plugins with install, enable/disable, export, and remove controls
-- [x] H.264/AAC export with NVENC or CPU, progress, cancel
+- [x] H.264 export with AAC or ALAC audio, NVENC or CPU, progress, cancel
 - [x] `.librecut` project save/load with backup
 
 Remaining before tagging v0.1:
@@ -45,8 +45,9 @@ What landed in v0.2:
 
 - One designated magnetic track keeps its clips packed, and a ripple toggle makes
   deletes and trims close the gap on every track.
-- Speed ramps use editable speed points, with an exact preview and a
-  piecewise-constant approximation in the exported file.
+- Speed ramps use editable speed points, with an exact preview, continuous
+  retiming for the exported picture, and finely sampled time-stretching for
+  the exported audio.
 - Text clips gained font family, italics, line height, shadow colour, and a
   background box; the preview can draw action/title safe areas and thirds.
 - `scripts/fetch-models.ps1` fills a models folder that LibreCut serves over

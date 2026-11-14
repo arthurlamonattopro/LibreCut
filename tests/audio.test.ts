@@ -178,6 +178,17 @@ describe("ducking key detection", () => {
     expect(duckKeyRegions(project([voice, music]), music)).toEqual([]);
   });
 
+  it("measures the key level after the track volume", () => {
+    const voice = track("voice-track", "audio", [clip("voice", "voice", 0, 4)], { volume: 0.01 });
+    const music = track("music-track", "audio", [clip("music", "music", 0, 8)], {
+      ducking: { enabled: true, amount: 12, threshold: -30, attack: 0.25, release: 0.5 },
+    });
+
+    // A clip at full level on a track turned almost all the way down is not
+    // loud enough to trigger ducking.
+    expect(duckKeyRegions(project([voice, music]), music)).toEqual([]);
+  });
+
   it("ignores muted tracks", () => {
     const voice = track("voice-track", "audio", [clip("voice", "voice", 1, 2)], { muted: true });
     const music = track("music-track", "audio", [clip("music", "music", 0, 8)], {

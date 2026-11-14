@@ -27,8 +27,9 @@ import {
 } from "../../lib/media";
 import { cachedProjectDuration, formatClock, formatDuration } from "../../lib/time";
 import { useT } from "../../lib/i18n";
-import { buildExportRequest } from "../../lib/exportRequest";
+import { buildExportRequest, DEFAULT_EXPORT_AUDIO } from "../../lib/exportRequest";
 import type {
+  ExportAudioCodec,
   ExportProgress,
   ExportResult,
   Project,
@@ -37,15 +38,37 @@ import type {
 
 type Preset = "source" | "youtube" | "tiktok" | "square" | "4k";
 type Quality = "draft" | "balanced" | "high";
-type SavedPreset = { name: string; preset: Preset; fps: number; quality: Quality; encoder: "libx264" | "nvenc" };
+type SavedPreset = {
+  name: string;
+  preset: Preset;
+  fps: number;
+  quality: Quality;
+  encoder: "libx264" | "nvenc";
+  audioCodec?: ExportAudioCodec;
+  audioBitrate?: number;
+  audioSampleRate?: number;
+};
 const SAVED_PRESETS_KEY = "librecut:export-presets";
+const AUDIO_BITRATES = [96, 128, 192, 256, 320];
+const AUDIO_SAMPLE_RATES = [44100, 48000, 96000];
 function loadSavedPresets(): SavedPreset[] {
   try { return JSON.parse(localStorage.getItem(SAVED_PRESETS_KEY) ?? "[]") as SavedPreset[]; } catch { return []; }
 }
-function estimateSizeMb(duration: number, width: number, height: number, quality: Quality): number {
+function estimateSizeMb(
+  duration: number,
+  width: number,
+  height: number,
+  quality: Quality,
+  audioCodec: ExportAudioCodec,
+  audioBitrate: number,
+  audioSampleRate: number,
+): number {
   const megapixels = width * height / 1_000_000;
   const videoMbps = Math.max(1.5, megapixels * ({ draft: 3, balanced: 5, high: 8 }[quality]));
-  return (videoMbps + 0.192) * duration / 8;
+  // ALAC is estimated at the uncompressed rate of a stereo 16-bit stream
+  // (32 bits per sample); the bitrate selector only applies to AAC.
+  const audioMbps = audioCodec === "alac" ? audioSampleRate * 32 / 1_000_000 : audioBitrate / 1000;
+  return (videoMbps + audioMbps) * duration / 8;
 }
 
 const PRESETS: Array<{
@@ -112,6 +135,9 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const [encoder, setEncoder] = useState<"libx264" | "nvenc">("libx264");
   const [fps, setFps] = useState(30);
   const [quality, setQuality] = useState<Quality>("balanced");
+  const [audioCodec, setAudioCodec] = useState<ExportAudioCodec>(DEFAULT_EXPORT_AUDIO.codec);
+  const [audioBitrate, setAudioBitrate] = useState(DEFAULT_EXPORT_AUDIO.bitrate);
+  const [audioSampleRate, setAudioSampleRate] = useState(DEFAULT_EXPORT_AUDIO.sampleRate);
   const [savedPresets, setSavedPresets] = useState<SavedPreset[]>(loadSavedPresets);
   const [presetName, setPresetName] = useState("");
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
@@ -128,6 +154,9 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
     if (!open || !project) return;
     setPreset(defaultPreset(project));
     setFps(project.fps);
+    setAudioCodec(DEFAULT_EXPORT_AUDIO.codec);
+    setAudioBitrate(DEFAULT_EXPORT_AUDIO.bitrate);
+    setAudioSampleRate(DEFAULT_EXPORT_AUDIO.sampleRate);
     setResult(null);
     setExporting(false);
     setCancelling(false);
@@ -193,7 +222,11 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
     setCancelling(false);
     announce(t("Export started."));
     try {
-      const request = buildExportRequest(project, target, dimensions.width, dimensions.height, encoder);
+      const request = buildExportRequest(project, target, dimensions.width, dimensions.height, encoder, {
+        codec: audioCodec,
+        bitrate: audioBitrate,
+        sampleRate: audioSampleRate,
+      });
       request.fps = fps;
       request.quality = quality;
       const exported = await exportProject(request);
@@ -230,13 +263,20 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const savePreset = () => {
     const name = presetName.trim();
     if (!name) return;
-    const next = [...savedPresets.filter((item) => item.name !== name), { name, preset, fps, quality, encoder }];
+    const next = [
+      ...savedPresets.filter((item) => item.name !== name),
+      { name, preset, fps, quality, encoder, audioCodec, audioBitrate, audioSampleRate },
+    ];
     setSavedPresets(next);
     localStorage.setItem(SAVED_PRESETS_KEY, JSON.stringify(next));
     setPresetName("");
   };
   const loadPreset = (saved: SavedPreset) => {
     setPreset(saved.preset); setFps(saved.fps); setQuality(saved.quality); setEncoder(saved.encoder);
+    // Presets saved before audio settings existed fall back to the defaults.
+    setAudioCodec(saved.audioCodec ?? DEFAULT_EXPORT_AUDIO.codec);
+    setAudioBitrate(saved.audioBitrate ?? DEFAULT_EXPORT_AUDIO.bitrate);
+    setAudioSampleRate(saved.audioSampleRate ?? DEFAULT_EXPORT_AUDIO.sampleRate);
   };
 
   const footer = result ? (
@@ -271,7 +311,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
       description={
         result
           ? t("Your video was rendered on this PC. No upload, no watermark.")
-          : t("Choose a size and render a clean H.264 MP4. Audio is mixed to AAC.")
+          : t("Choose a size and audio settings, then render a clean H.264 MP4.")
       }
       width={610}
       footer={footer}
@@ -286,11 +326,12 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
             </div>
             <span className="chip">{formatDuration(result.elapsedMs / 1000)}</span>
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {[
               [t("Canvas"), `${dimensions.width}×${dimensions.height}`],
               [t("Duration"), formatClock(duration, fps)],
               [t("Encoder"), encoder === "nvenc" ? "NVENC" : "x264 CPU"],
+              [t("Audio"), `${audioCodec.toUpperCase()} · ${audioCodec === "alac" ? t("lossless") : t("{value} kbps", { value: audioBitrate })} · ${t("{value} kHz", { value: audioSampleRate / 1000 })}`],
             ].map(([label, value]) => (
               <div key={label} className="rounded-lg border border-line-soft bg-surface-2/50 px-3 py-2.5">
                 <div className="text-[9.5px] uppercase tracking-wide text-dim">{label}</div>
@@ -347,17 +388,63 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
             </select></div>
             <div className="rounded-lg border border-line-soft bg-surface-2/50 px-3 py-2">
               <div className="text-[9.5px] uppercase tracking-wide text-dim">{t("Estimated size")}</div>
-              <div className="mt-1 font-mono text-[11px]">{t("~{size} MB", { size: estimateSizeMb(duration, dimensions.width, dimensions.height, quality).toFixed(0) })}</div>
+              <div className="mt-1 font-mono text-[11px]">{t("~{size} MB", { size: estimateSizeMb(duration, dimensions.width, dimensions.height, quality, audioCodec, audioBitrate, audioSampleRate).toFixed(0) })}</div>
             </div>
           </div>
           <p className="-mt-3 text-[9.5px] text-dim">{t("Estimate uses frame size and quality. Motion, detail, and audio can change the final size.")}</p>
+
+          <div>
+            <span className="label">{t("Audio")}</span>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="label" htmlFor="export-audio-codec">{t("Codec")}</label>
+                <select
+                  id="export-audio-codec"
+                  className="field"
+                  value={audioCodec}
+                  onChange={(event) => setAudioCodec(event.target.value as ExportAudioCodec)}
+                  disabled={exporting}
+                >
+                  <option value="aac">AAC</option>
+                  <option value="alac">{t("ALAC · lossless")}</option>
+                </select>
+              </div>
+              <div>
+                <label className="label" htmlFor="export-audio-bitrate">{t("Bitrate")}</label>
+                <select
+                  id="export-audio-bitrate"
+                  className="field"
+                  value={audioCodec === "alac" ? "lossless" : String(audioBitrate)}
+                  onChange={(event) => setAudioBitrate(Number(event.target.value))}
+                  disabled={exporting || audioCodec === "alac"}
+                >
+                  {audioCodec === "alac"
+                    ? <option value="lossless">{t("Lossless")}</option>
+                    : AUDIO_BITRATES.map((value) => <option key={value} value={value}>{t("{value} kbps", { value })}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label" htmlFor="export-audio-sample-rate">{t("Sample rate")}</label>
+                <select
+                  id="export-audio-sample-rate"
+                  className="field"
+                  value={audioSampleRate}
+                  onChange={(event) => setAudioSampleRate(Number(event.target.value))}
+                  disabled={exporting}
+                >
+                  {AUDIO_SAMPLE_RATES.map((value) => <option key={value} value={value}>{t("{value} kHz", { value: value / 1000 })}</option>)}
+                </select>
+              </div>
+            </div>
+            <p className="mt-1.5 text-[10px] text-dim">{t("AAC is the compatible choice. ALAC is lossless, so its bitrate follows the sample rate instead of the selector.")}</p>
+          </div>
 
           <div className="flex items-center gap-2">
             <input className="field min-w-0 flex-1" value={presetName} onChange={(event) => setPresetName(event.target.value)} placeholder={t("Name these settings")} disabled={exporting} aria-label={t("Export preset name")} />
             <button className="btn btn-secondary shrink-0" onClick={savePreset} disabled={!presetName.trim() || exporting}>{t("Save preset")}</button>
             {savedPresets.length ? <button className="btn btn-ghost shrink-0" onClick={() => setSavedPresets((items) => { const next = items.filter((item) => item.name !== presetName); localStorage.setItem(SAVED_PRESETS_KEY, JSON.stringify(next)); return next; })} disabled={exporting || !presetName.trim()}>{t("Remove")}</button> : null}
           </div>
-          <p className="-mt-3 text-[9.5px] text-dim">{t("Saved on this PC: resolution, frame rate, quality, and encoder.")}</p>
+          <p className="-mt-3 text-[9.5px] text-dim">{t("Saved on this PC: resolution, frame rate, quality, encoder, and audio settings.")}</p>
 
           <div className="grid grid-cols-2 gap-3">
             <div>

@@ -6,7 +6,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::ffmpeg;
 
-use super::encoder::encoder_args;
+use super::encoder::{audio_encoder_args, encoder_args};
 use super::graph::build_graph;
 use super::model::*;
 
@@ -72,7 +72,11 @@ pub async fn render_with_progress(
         "cfr",
     ]);
     if request.clips.iter().any(|clip| clip.has_audio) {
-        command.args(["-c:a", "aac", "-b:a", "192k", "-ar", "48000"]);
+        command.args(audio_encoder_args(
+            request.audio_codec.as_deref(),
+            request.audio_bitrate,
+            request.audio_sample_rate,
+        )?);
     }
     command.args(["-movflags", "+faststart", "-progress", "pipe:1", "-nostats"]);
     command.arg(&partial_output);

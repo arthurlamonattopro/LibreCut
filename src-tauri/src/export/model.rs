@@ -129,7 +129,6 @@ pub struct ExportSpeedPoint {
 
 #[derive(Clone, Debug)]
 pub(super) struct SpeedSegment {
-    pub(super) output_start: f64,
     pub(super) speed: f64,
     pub(super) source_start: f64,
     pub(super) source_duration: f64,
@@ -273,6 +272,15 @@ pub struct ExportRequest {
     pub encoder: Option<String>,
     #[serde(default)]
     pub quality: Option<String>,
+    /// Output audio codec: `aac` (default) or `alac`.
+    #[serde(default)]
+    pub audio_codec: Option<String>,
+    /// AAC bitrate in kbps. Ignored by lossless codecs.
+    #[serde(default)]
+    pub audio_bitrate: Option<u32>,
+    /// Output sample rate in hertz. The mix is rendered at 48 kHz internally.
+    #[serde(default)]
+    pub audio_sample_rate: Option<u32>,
 }
 
 #[derive(Serialize, Clone, Debug)]
