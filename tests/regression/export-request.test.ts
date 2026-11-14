@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildExportRequest } from "../../src/lib/exportRequest";
+import { buildExportRequest, previewRenderKey } from "../../src/lib/exportRequest";
 import { normalizeProject } from "../../src/lib/project";
 import type { Project } from "../../src/lib/types";
 
@@ -111,5 +111,21 @@ describe("export request regression", () => {
     // The hidden video track is gone, the muted audio track stays but is silent.
     expect(request.clips.map((clip) => clip.trackId)).toEqual(["track-legacy-audio"]);
     expect(request.clips[0].hasAudio).toBe(false);
+  });
+
+  it("keys the preview render by the picture, not the output path", () => {
+    const project = loadFixture("v0.1-minimal.librecut");
+    const first = buildExportRequest(project, "first.mp4", 1920, 1080);
+    const second = buildExportRequest(project, "second.mp4", 1920, 1080);
+
+    expect(previewRenderKey(first)).toBe(previewRenderKey(second));
+
+    const changed = buildExportRequest(project, "second.mp4", 1920, 1080);
+    changed.fps = 24;
+    expect(previewRenderKey(first)).not.toBe(previewRenderKey(changed));
+
+    const nudged = buildExportRequest(project, "second.mp4", 1920, 1080);
+    nudged.clips[0].trimIn = 0.5;
+    expect(previewRenderKey(first)).not.toBe(previewRenderKey(nudged));
   });
 });

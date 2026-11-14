@@ -96,6 +96,54 @@ sorted clips replaces the scan over every clip that each frame used to do.
 Preview resolution is capped at 1920 px on the long edge. Proxies keep decoding
 cheap for 4K sources and codecs WebView2 struggles with.
 
+### Export-accurate frames
+
+The canvas is fast, but it is a second renderer. **Match export** in the
+preview header asks FFmpeg for the paused frame instead. The renderer builds
+the same `ExportRequest` the export dialog uses and calls
+`render_preview_frame` (`src-tauri/src/export.rs`), which runs
+`render_frame` (`src-tauri/src/export/preview.rs`):
+
+1. `frame_request` trims the request to a short window around the playhead.
+   Clips outside the window are dropped, and each input is seeked to the
+   window instead of decoding from the start of the timeline. A clip that is
+   held by a transition keeps a tail around its last frame.
+2. The window goes through `build_graph`, the export graph unchanged. The
+   frame therefore carries the real `xfade` transitions, the colour and LUT
+   processing, and FFmpeg's font rasterisation. To support windows, the graph
+   accepts clip starts before zero; a normal export never produces them.
+3. The PNG is written to the app cache, registered in the `MediaRegistry`, and
+   shown over the canvas through `mediaUrl`, at the project resolution rather
+   than the 1920 px canvas cap.
+
+### Export-accurate playback
+
+A still image at a time is not enough for the transitions users see in motion,
+so the preview also has an **Exact** quality mode (persisted per machine). The
+whole timeline is rendered once by the export graph into a cached MP4
+(`preview_render`, `src-tauri/src/export/preview_render.rs`), and the preview
+plays that file through the same media protocol the pool uses.
+
+1. The renderer clones the export request, forces a `libx264` "draft" encode,
+   and runs `render_with_progress`, so the file carries the exact pixels, font
+   rasterisation and `xfade` transitions the export produces, at the project
+   resolution, including audio.
+2. The cache key is a hash of the request (output path excluded), so an
+   unchanged project reuses the file and any edit produces a new one. Two
+   renders are kept, which makes undo and small edits survivable. Progress
+   is emitted as `preview-render-progress` and the render can be cancelled.
+3. The stage keeps the canvas overlay mechanism and shows the video over it
+   when the render matches the current project; anything else (or nobody
+   pressed play) still shows the fast canvas preview.
+
+`render_preview_playback` and `cancel_preview_render` are the Tauri commands
+behind it. The preview quality toggle lives in the preview header and is
+disabled outside the desktop app.
+
+`src-tauri/tests/preview_frame.rs` renders a full export and compares preview
+frames against frames extracted from it with PSNR, so the two cannot drift
+apart.
+
 The editor components are split by role. `Preview.tsx` owns playback, media
 pooling, and compositing; the pure canvas helpers live in
 `src/lib/previewCanvas.ts`, and the stage and transport UI live in `preview/`.
@@ -241,8 +289,9 @@ independent renderers.
 Transitions are halfway there: the catalogue of transitions and the rule that
 decides which transition plays on a cut live in one place
 (`src/lib/transitions.ts`), and both renderers read them. What is still
-described twice is the look of a transition: the preview paints the geometry
-with canvas operations, while the export hands the name to FFmpeg's `xfade`.
-The preview therefore approximates the exotic transitions, while the export
-renders the real thing. A test in `src-tauri/tests/transitions.rs` keeps the
-two lists of transition names in step.
+described twice is the look of a transition: the canvas preview paints the
+geometry with canvas operations, while the export hands the name to FFmpeg's
+`xfade`. The **Match export** frame closes that gap for inspection, because it
+is produced by the export graph itself, but playback still uses the canvas
+approximation. A test in `src-tauri/tests/transitions.rs` keeps the two lists
+of transition names in step.

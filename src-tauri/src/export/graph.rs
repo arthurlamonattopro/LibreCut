@@ -33,7 +33,10 @@ pub fn build_graph(request: &ExportRequest) -> String {
         if !clip.has_video && !clip.is_image {
             continue;
         }
-        let start = clip.start.max(0.0);
+        // A preview window can start in the middle of a clip. The clip then
+        // keeps its original timing, which puts its start before the window;
+        // a normal export never has a negative start.
+        let start = clip.start;
         let clip_duration = clip.duration.max(0.04);
         let speed = if clip.is_image {
             1.0
@@ -215,7 +218,11 @@ pub fn build_graph(request: &ExportRequest) -> String {
         if !clip.has_video && !clip.is_image {
             continue;
         }
-        let start = clip.start.max(0.0);
+        // Start times may be negative while a single export frame is
+        // previewed: the graph is then evaluated from a window that begins
+        // before the frame, so transitions have their full history. A normal
+        // export never has a negative start.
+        let start = clip.start;
         let end = start + clip.duration.max(0.04);
         let Some(label) = overlay_labels.get(&index) else {
             continue;
@@ -256,7 +263,7 @@ pub fn build_graph(request: &ExportRequest) -> String {
     }
 
     for (index, effect) in request.effects.iter().enumerate() {
-        let start = effect.start.max(0.0);
+        let start = effect.start;
         let end = (effect.start + effect.duration.max(0.04)).max(start + 0.04);
         let from = format!("fxsrc{index}");
         let original = format!("fxorig{index}");
@@ -342,7 +349,7 @@ pub fn build_graph(request: &ExportRequest) -> String {
     }
 
     for (index, text) in request.texts.iter().enumerate() {
-        let start = text.start.max(0.0);
+        let start = text.start;
         let end = (text.start + text.duration.max(0.04)).max(start + 0.04);
         let local_t = format!("(t-{start:.6})");
         let x_expr = keyframe_expr(&text.keyframes, "x", text.x, &local_t);

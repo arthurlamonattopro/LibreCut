@@ -34,33 +34,7 @@ pub async fn render_with_progress(
         uuid::Uuid::new_v4().simple()
     ));
 
-    let mut export_request = request.clone();
-    let mut lut_files = Vec::new();
-    for effect in &mut export_request.effects {
-        let Some(lut) = effect.lut.as_mut() else {
-            continue;
-        };
-        if lut.size < 2 || lut.size > 64 || lut.cube_text.len() > 16 * 1024 * 1024 {
-            return Err("The project contains an unsupported or oversized 3D LUT.".to_string());
-        }
-        let sample_count = lut
-            .cube_text
-            .lines()
-            .filter(|line| {
-                let line = line.split('#').next().unwrap_or("").trim();
-                let fields = line.split_whitespace().collect::<Vec<_>>();
-                fields.len() == 3 && fields.iter().all(|value| value.parse::<f64>().is_ok())
-            })
-            .count();
-        if sample_count != lut.size.pow(3) {
-            return Err(format!("The {} LUT data is malformed.", lut.title));
-        }
-        let path = ffmpeg::unique_file(&work_dir.join("exports"), "cube");
-        std::fs::write(&path, &lut.cube_text)
-            .map_err(|error| format!("Could not prepare LUT for export: {error}"))?;
-        lut.lut_path = Some(path.to_string_lossy().to_string());
-        lut_files.push(path);
-    }
+    let (export_request, lut_files) = prepare_lut_files(request, work_dir)?;
     let _lut_cleanup = LutFileCleanup(lut_files);
 
     let script_path = ffmpeg::unique_file(&work_dir.join("exports"), "filter");
@@ -228,7 +202,46 @@ pub async fn render_with_progress(
     })
 }
 
-struct LutFileCleanup(Vec<PathBuf>);
+/// Writes the `.cube` files an export graph refers to.
+///
+/// The project document stores the LUT text, not a path, so every render has
+/// to materialise the data first. Both the full export and the single-frame
+/// preview use this helper, which keeps their colour processing identical.
+pub(super) fn prepare_lut_files(
+    request: &ExportRequest,
+    work_dir: &Path,
+) -> Result<(ExportRequest, Vec<PathBuf>), String> {
+    let mut prepared = request.clone();
+    let mut lut_files = Vec::new();
+    for effect in &mut prepared.effects {
+        let Some(lut) = effect.lut.as_mut() else {
+            continue;
+        };
+        if lut.size < 2 || lut.size > 64 || lut.cube_text.len() > 16 * 1024 * 1024 {
+            return Err("The project contains an unsupported or oversized 3D LUT.".to_string());
+        }
+        let sample_count = lut
+            .cube_text
+            .lines()
+            .filter(|line| {
+                let line = line.split('#').next().unwrap_or("").trim();
+                let fields = line.split_whitespace().collect::<Vec<_>>();
+                fields.len() == 3 && fields.iter().all(|value| value.parse::<f64>().is_ok())
+            })
+            .count();
+        if sample_count != lut.size.pow(3) {
+            return Err(format!("The {} LUT data is malformed.", lut.title));
+        }
+        let path = ffmpeg::unique_file(&work_dir.join("exports"), "cube");
+        std::fs::write(&path, &lut.cube_text)
+            .map_err(|error| format!("Could not prepare LUT for export: {error}"))?;
+        lut.lut_path = Some(path.to_string_lossy().to_string());
+        lut_files.push(path);
+    }
+    Ok((prepared, lut_files))
+}
+
+pub(super) struct LutFileCleanup(pub(super) Vec<PathBuf>);
 
 impl Drop for LutFileCleanup {
     fn drop(&mut self) {

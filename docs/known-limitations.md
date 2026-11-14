@@ -88,22 +88,37 @@ the last real edit.
 **Undo history is bounded.** The limit drops from 100 steps to 32, 16, and 8
 as the project grows past 300, 800, and 2000 clips.
 
-## The preview is not the export
+## The live preview is still a second renderer — unless you ask for Exact
 
-The preview draws the frame in a browser canvas and plays the audio through
-the Web Audio graph. The export asks FFmpeg to render the same edit. Both read
-the same settings, but they are two renderers.
+The live preview draws the frame in a browser canvas and plays the audio
+through the Web Audio graph. The export asks FFmpeg to render the same edit.
+Both read the same settings, but they are two renderers: the canvas keeps
+scrubbing fast, and it is not the file you get. For a single paused frame,
+turn on **Match export** in the preview header: the frame is rendered by the
+export filter graph at the project's full resolution and shown over the
+canvas. For motion, flip the preview quality toggle in the same header to
+**Exact**: the whole timeline is rendered once with the export graph into a
+cached file and played back from it, so playback, scrubbing and audio are the
+export. Any edit invalidates the file and triggers a re-render, which is what
+the render bar in the stage is.
 
 What this means in practice:
 
-- **Scaling, colour processing, and font rendering can differ slightly.**
-  The export dialog says this under **Render diagnostics**.
-- **Exotic transitions are approximated in the preview.** The canvas paints the
-  geometry; the export hands the name to FFmpeg's `xfade` filter and renders
-  the real thing.
-- **The preview is capped at 1920 pixels on the long edge.** On a 4K project
-  the preview is scaled down, so fine detail looks different than it will in
-  the export.
+- **Exact costs a render.** The timeline is re-rendered in the background
+  whenever the project changes; the file is cached by content, and the two
+  most recent renders are kept so undo stays cheap. Switch back to **Fast** for
+  instant canvas playback at any time.
+- **The pause/single-frame path is different from playback.** **Match export**
+  renders one frame on demand for inspection; **Exact** renders the whole
+  timeline for playback and is deliberately an opt-in.
+- **The live canvas still approximates exotic transitions and audio.** The
+  live canvas paints the geometry and Web Audio mixes the sound; with **Exact**
+  quality, the whole timeline is rendered with the export FFmpeg graph and
+  played back from that file, so playback, scrubbing, and audio are the export.
+- **The canvas preview is capped at 1920 pixels on the long edge.** On a 4K
+  project the live canvas is scaled down. Both **Match export** frames and the
+  **Exact** playback file are written at the project resolution, so fine detail
+  and text come from the export pixels.
 
 Check the **Render diagnostics** section of the export dialog before a long
 render. It reports the frame-rate mismatches, the features in the render, and

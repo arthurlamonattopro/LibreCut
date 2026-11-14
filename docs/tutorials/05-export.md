@@ -98,6 +98,24 @@ path, the render time, and three tiles: **Canvas**, **Duration**, and
 **Encoder**. Press **Show in folder** to open the folder, or **Done** to
 close.
 
+## Hear and see the render before you render
+
+The preview has two ways to show you what FFmpeg will produce, both in the
+preview header:
+
+- **Match export** renders one paused frame with the export graph itself. The
+  preview stage shows that frame, labelled with its pixel size.
+- **Exact** renders the whole timeline to a cached file and plays it back.
+  Press Play or Space: you get the export's pixels and its audio while the
+  edit plays, at the project resolution. It takes a render, so it runs in the
+  background with a progress bar in the stage and a **Cancel** button. Switch
+  back to **Fast** for instant canvas playback.
+
+A render happens automatically in the background whenever the project changes
+while **Exact** is on, so playback is usually ready by the time you get
+there. The file is cached by content: an unchanged project does not render
+twice.
+
 ## Read the render diagnostics
 
 The **Render diagnostics** section tells you where the render may differ from
@@ -112,9 +130,10 @@ It reports:
 - **What is in the render.** *"Project features queued for this render:
   {k} clips with keyframes, {t} clips with transitions, and {e} color-effect
   clips."*
-- **Preview against export.** *"Preview uses browser video decoding while
-  export uses FFmpeg, so scaling, color processing, and font rasterization may
-  differ slightly."*
+- **Preview against export.** *"The canvas preview uses browser video decoding
+  while export uses FFmpeg, so scaling, color processing, and font rasterization
+  can differ slightly. Turn on Match export in the preview to render the paused
+  frame with the export pipeline."*
 - **Codecs that depend on the build.** *"{name}: {codec} may depend on the
   installed FFmpeg build."* for any source outside the common set.
 

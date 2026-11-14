@@ -1,18 +1,76 @@
-import { LayoutGrid, Maximize2, Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
+import type { ReactNode } from "react";
+import { LayoutGrid, Loader2, Maximize2, Pause, Play, ScanEye, SkipBack, SkipForward, Square, Zap, BadgeCheck } from "lucide-react";
 import { formatClock } from "../../../lib/time";
 import { useT } from "../../../lib/i18n";
 import type { Project } from "../../../lib/types";
+
+export function PreviewQualityPicker({
+  quality,
+  onChange,
+  disabled,
+}: {
+  quality: "fast" | "exact";
+  onChange: (quality: "fast" | "exact") => void;
+  disabled?: boolean;
+}) {
+  const t = useT();
+  const option = (value: "fast" | "exact", icon: ReactNode, label: string, title: string) => (
+    <button
+      data-quality={value}
+      className={`flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] transition ${
+        quality === value ? "bg-raised text-accent shadow-sm" : "text-muted hover:text-ink"
+      } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+      onClick={() => onChange(value)}
+      disabled={disabled}
+      title={title}
+      aria-pressed={quality === value}
+      aria-label={label}
+    >
+      {icon}
+      <span className="hidden text-[11px] sm:inline">{label}</span>
+    </button>
+  );
+  return (
+    <div
+      role="group"
+      aria-label={t("Preview quality")}
+      className="flex items-center rounded-lg border border-line-soft bg-surface-2/50 p-0.5"
+    >
+      {option("fast", <Zap size={12} aria-hidden="true" />, t("Fast"), t("Canvas preview: playback is fast and uses browser decoding"))}
+      {option(
+        "exact",
+        <BadgeCheck size={12} aria-hidden="true" />,
+        t("Exact"),
+        t("Export-accurate playback: render the timeline with FFmpeg, then play the result"),
+      )}
+    </div>
+  );
+}
 
 export function PreviewHeader({
   project,
   showGuides,
   onToggleGuides,
   onFullscreen,
+  matchExport,
+  matchExportBusy,
+  matchExportDisabled,
+  onToggleMatchExport,
+  previewQuality,
+  onToggleQuality,
+  previewQualityDisabled,
 }: {
   project: Project | null;
   showGuides: boolean;
   onToggleGuides: () => void;
   onFullscreen: () => void;
+  matchExport: boolean;
+  matchExportBusy: boolean;
+  matchExportDisabled?: boolean;
+  onToggleMatchExport: () => void;
+  previewQuality: "fast" | "exact";
+  onToggleQuality: (quality: "fast" | "exact") => void;
+  previewQualityDisabled?: boolean;
 }) {
   const t = useT();
   return (
@@ -23,7 +81,23 @@ export function PreviewHeader({
         <span className="text-dim" aria-hidden="true">·</span>
         <span>{project?.fps ?? 30} fps</span>
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1.5">
+        <PreviewQualityPicker quality={previewQuality} onChange={onToggleQuality} disabled={previewQualityDisabled} />
+        <button
+          className={`btn btn-sm gap-1.5 ${matchExport ? "btn-secondary text-accent" : "btn-ghost"} ${matchExportDisabled ? "cursor-not-allowed opacity-50" : ""}`}
+          onClick={onToggleMatchExport}
+          disabled={matchExportDisabled}
+          title={matchExportDisabled ? t("Match export is available in the desktop app") : t("Render the paused frame with the FFmpeg export pipeline")}
+          aria-label={t("Match export")}
+          aria-pressed={matchExport}
+        >
+          {matchExport && matchExportBusy ? (
+            <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+          ) : (
+            <ScanEye size={13} aria-hidden="true" />
+          )}
+          <span className="hidden text-[11px] sm:inline">{t("Match export")}</span>
+        </button>
         <button
           className={`btn btn-ghost btn-icon btn-sm ${showGuides ? "text-accent" : ""}`}
           onClick={onToggleGuides}

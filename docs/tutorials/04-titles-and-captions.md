@@ -119,13 +119,15 @@ watch the preview play it back.
 - **A text clip is not a subtitle file.** Imported `.srt` cues are text clips
   that you can move and restyle, but they are no longer linked to the
   original file.
-- **The preview and the export can differ slightly in font rendering.** The
-  preview uses the browser's text renderer and the export uses FFmpeg's
+- **The canvas preview and the export can differ slightly in font rendering.**
+  The canvas uses the browser's text renderer and the export uses FFmpeg's
   `drawtext` filter. Letter spacing and arc in particular can land a little
-  differently.
-- **The preview cap is 1920 pixels on the long edge.** On a 4K project, the
-  preview shows a scaled-down frame, so fine type looks different than it
-  will be in the export.
+  differently. Turn on **Match export** in the preview header to see the
+  paused frame exactly as FFmpeg renders it.
+- **The canvas preview is capped at 1920 pixels on the long edge.** On a 4K
+  project, the playing canvas shows a scaled-down frame. **Match export**
+  renders the paused frame at the project resolution instead, so fine type can
+  be checked without exporting.
 - **Dropping media on a text track does nothing.** Media belongs on a video
   or audio track.
 - **Pressing `Enter` in the project name field on the start screen creates the

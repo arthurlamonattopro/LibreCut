@@ -466,7 +466,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
                 transitions: project.tracks.reduce((sum, track) => sum + track.clips.filter((clip) => clip.transitionIn.type !== "none" || clip.transitionOut.type !== "none").length, 0),
                 effects: project.tracks.reduce((sum, track) => sum + track.clips.filter((clip) => clip.effect).length, 0),
               })}</p>
-              <p>{t("Preview uses browser video decoding while export uses FFmpeg, so scaling, color processing, and font rasterization may differ slightly.")}</p>
+              <p>{t("The canvas preview uses browser video decoding while export uses FFmpeg, so scaling, color processing, and font rasterization can differ slightly. Turn on Match export in the preview to render the paused frame with the export pipeline.")}</p>
               {project.assets.filter((asset) => asset.info.videoCodec && !["h264", "vp8", "vp9", "av1", "hevc", "mpeg4"].includes(asset.info.videoCodec.toLowerCase())).map((asset) => <p key={asset.id}>{t("{name}: {codec} may depend on the installed FFmpeg build.", { name: asset.name, codec: asset.info.videoCodec ?? "" })}</p>)}
             </div> : null}
           </div>

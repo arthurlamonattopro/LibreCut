@@ -191,3 +191,23 @@ export function buildExportRequest(
     encoder,
   };
 }
+
+/**
+ * A stable content key for an export request.
+ *
+ * Used to tell whether a rendered preview still matches the project. The
+ * output path is ignored, so changing *where* a file goes does not invalidate
+ * the preview; anything that changes the pixels (including invisible settings
+ * like frame rate) does.
+ */
+export function previewRenderKey(request: ExportRequest): string {
+  const rest: Partial<ExportRequest> = { ...request };
+  delete rest.output;
+  const json = JSON.stringify(rest);
+  let hash = 0x811c9dc5 >>> 0;
+  for (let index = 0; index < json.length; index += 1) {
+    hash ^= json.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}

@@ -13,6 +13,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(media::MediaRegistry::default())
         .manage(export::ExportState::default())
+        .manage(export::PreviewRenderState::default())
         .manage(metrics::MemoryTracker::default())
         .register_uri_scheme_protocol("librecut", |ctx, request| {
             media::handle_protocol(ctx.app_handle(), &request)
@@ -33,6 +34,9 @@ pub fn run() {
             export::export_project,
             export::cancel_export,
             export::is_exporting,
+            export::render_preview_frame,
+            export::render_preview_playback,
+            export::cancel_preview_render,
             project::save_project,
             project::load_project,
             project::has_nvenc,

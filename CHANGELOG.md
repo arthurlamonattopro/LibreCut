@@ -11,6 +11,13 @@ All notable changes to LibreCut are recorded here. The project follows
   selection, including bulk move, delete, duplicate, and split.
 - Track deletion and reordering from the track actions menu, and a footer
   button for every track kind.
+- **Match export** in the preview header renders the paused frame with the
+  FFmpeg export graph, at the project resolution. The frame has the export's
+  scaling, colour processing, font rasterisation, and real `xfade`
+  transitions, so a 4K project can be checked without a 1920 px cap.
+- **Exact playback quality**: a preview quality toggle renders the whole
+  timeline with the FFmpeg export graph and plays the cached file back, so
+  playback, scrubbing, and audio are the export instead of a second renderer.
 
 ### Fixed
 

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { assetForClip, useEditor } from "../../stores/editor";
-import { mediaUrl } from "../../lib/media";
+import { cancelPreviewRender, isTauri, mediaUrl, renderPreviewFrame, renderPreviewPlayback } from "../../lib/media";
 import { projectDuration } from "../../lib/time";
 import { clipValue } from "../../lib/animation";
 import { renderTransition } from "../../lib/transitionPreview";
@@ -15,7 +16,6 @@ import {
   applyClipMask,
   applyLutToCanvas,
   drawFitted,
-  drawSafeGuides,
   drawTextClip,
   keyedFrame,
   maskFrameOf,
@@ -25,6 +25,8 @@ import {
   transitionPlanOf,
 } from "../../lib/previewCanvas";
 import type { Clip, DuckSegment, MaskPoint, Project } from "../../lib/types";
+import { buildExportRequest, previewRenderKey } from "../../lib/exportRequest";
+import type { PreviewRenderProgress } from "../../lib/types";
 import { PreviewHeader, PreviewTransport } from "./preview/PreviewControls";
 import { PreviewStage } from "./preview/PreviewStage";
 
@@ -68,9 +70,29 @@ export function Preview() {
   const [showGuides, setShowGuides] = useState(false);
   const [draftMaskPoints, setDraftMaskPoints] = useState<MaskPoint[]>([]);
   const [canvasBox, setCanvasBox] = useState({ left: 0, top: 0, width: 0, height: 0 });
+  const [matchExport, setMatchExport] = useState(false);
+  const [exactFrame, setExactFrame] = useState<{ mediaId: string; width: number; height: number } | null>(null);
+  const [exactFrameBusy, setExactFrameBusy] = useState(false);
+  const [exactFrameError, setExactFrameError] = useState<string | null>(null);
+  // "Export-accurate" playback: the edit is rendered with the export graph and
+  // played back from the rendered file. The fast canvas path stays the default.
+  const [previewQuality, setPreviewQuality] = useState<"fast" | "exact">(() => {
+    if (isTauri) {
+      try {
+        return localStorage.getItem("librecut.preview.quality") === "exact" ? "exact" : "fast";
+      } catch {
+        return "fast";
+      }
+    }
+    return "fast";
+  });
+  const [renderProgress, setRenderProgress] = useState<PreviewRenderProgress | null>(null);
+  const [renderRetry, setRenderRetry] = useState(0);
+  const [exactRenderError, setExactRenderError] = useState<string | null>(null);
+  const [exactRenderedHash, setExactRenderedHash] = useState<string | null>(null);
+  const [exactMediaId, setExactMediaId] = useState<string | null>(null);
   const drawingMaskRef = useRef(false);
   const maskPointsRef = useRef<MaskPoint[]>([]);
-  const guidesRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const effectCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const motionHistoryRef = useRef<Map<string, MotionHistory>>(new Map());
@@ -90,9 +112,31 @@ export function Preview() {
   const playingRef = useRef(playing);
   const timeRef = useRef(currentTime);
   const lastSlowSeekWarningRef = useRef(0);
+  const exactFrameRequestRef = useRef(0);
+  const renderKeyRef = useRef<string | null>(null);
+  const renderFailedKeyRef = useRef<string | null>(null);
+  const renderCancelledKeyRef = useRef<string | null>(null);
+  const exactReadyRef = useRef(false);
+  const exactVideoRef = useRef<HTMLVideoElement | null>(null);
+  const exactRafRef = useRef(0);
+  // True once a full frame has been painted. Until then the canvas may show
+  // empty background on the first scrubbed frame; afterwards the last
+  // composite is kept until every on-screen clip is ready again.
+  const hasDrawnFrameRef = useRef(false);
 
   const duration = project ? projectDuration(project.tracks, 0) : 0;
   const fps = project?.fps ?? 30;
+  const hasClips = project?.tracks.some((track) => track.clips.length > 0) ?? false;
+  const canShowExportFrame = matchExport && isTauri && hasClips;
+  // The content key of everything that can change a pixel of the accurate
+  // preview. This is what tells us the rendered file matches the project.
+  const contentKey = useMemo(
+    () => (project && hasClips ? previewRenderKey(buildExportRequest(project, "", project.width, project.height)) : null),
+    [project, hasClips],
+  );
+  const exactReady = previewQuality === "exact" && isTauri && hasClips && contentKey !== null && exactRenderedHash === contentKey;
+  const exactVideoUrl = exactReady && exactMediaId && isTauri ? mediaUrl(exactMediaId) : null;
+  exactReadyRef.current = exactReady;
   const selectedClip = project && selectedClipId
     ? project.tracks.flatMap((track) => track.clips).find((clip) => clip.id === selectedClipId)
     : undefined;
@@ -101,7 +145,8 @@ export function Preview() {
   );
 
   useEffect(() => {
-    if (!drawingCustomMask) return;
+    // The box is measured even when no mask is drawn: the export frame is
+    // painted on top of the canvas at exactly the same place.
     const updateBox = () => {
       const canvas = canvasRef.current;
       const stage = stageRef.current;
@@ -531,6 +576,7 @@ export function Preview() {
   const drawFrame = (time: number) => {
     const activeProject = projectRef.current;
     const canvas = canvasRef.current;
+    if (exactReadyRef.current) return;
     if (!activeProject) return;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
@@ -544,15 +590,41 @@ export function Preview() {
       canvas.height = height;
     }
 
+    const index = timelineIndexRef.current;
+    // While the browser reseeks the clips as the playhead moves, at least one
+    // of them is usually between frames. Painting then would show the empty
+    // background for a frame or two at a time — a black blink. Keep the last
+    // composite until every clip on screen is ready to draw.
+    const visibleMedia = index
+      ? activeClips(index, time).filter(({ track }) => !track.hidden && track.kind !== "text" && track.kind !== "audio")
+      : [];
+    // Clips that are going away are painted too while their transition runs,
+    // so they matter as well.
+    const transitionOutgoing = index
+      ? visibleMedia.flatMap(({ clip }) => {
+          const plan = transitionPlanOf(index, clip);
+          if (!plan.incoming || time >= clip.start + plan.incoming.duration) return [];
+          const location = index.clipLocations.get(clip.id);
+          const previous = location?.track.previous[location.index];
+          return previous ? [previous] : [];
+        })
+      : [];
+    const waitingOnMedia = [...visibleMedia.map(({ clip }) => clip), ...transitionOutgoing].some((clip) => {
+      const entry = poolRef.current.get(clip.id);
+      if (!entry) return true;
+      if (entry.kind === "image") return !(entry.el as HTMLImageElement).complete;
+      const video = entry.el as HTMLVideoElement;
+      return video.seeking || video.readyState < 2;
+    });
+    if (waitingOnMedia && hasDrawnFrameRef.current) return;
+
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = "#0b0b0d";
     ctx.fillRect(0, 0, width, height);
     ctx.scale(scale, scale);
 
-    const index = timelineIndexRef.current;
-    for (const { track, clip } of index ? activeClips(index, time) : []) {
-      if (track.hidden || track.kind === "text" || track.kind === "audio") continue;
+    for (const { clip } of visibleMedia) {
       {
         const entry = poolRef.current.get(clip.id);
         if (!entry) continue;
@@ -683,10 +755,7 @@ export function Preview() {
       if (track.hidden || track.kind !== "text" || !clip.text) continue;
       drawTextClip(ctx, clip, activeProject, time);
     }
-
-    if (guidesRef.current) {
-      drawSafeGuides(ctx, activeProject, scale, t("ACTION SAFE"), t("TITLE SAFE"));
-    }
+    hasDrawnFrameRef.current = true;
   };
 
   const scheduleDraw = () => {
@@ -696,12 +765,6 @@ export function Preview() {
       drawFrame(timeRef.current);
     });
   };
-
-  useEffect(() => {
-    guidesRef.current = showGuides;
-    scheduleDraw();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showGuides]);
 
   const startLoop = () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -740,9 +803,11 @@ export function Preview() {
     // The index turns the per-frame clip lookups into a binary search.
     timelineIndexRef.current = project ? buildTimelineIndex(project) : null;
     syncPool(timeRef.current);
-    syncElements(timeRef.current, playingRef.current);
-    applyGains(timeRef.current);
-    scheduleDraw();
+    if (!exactReadyRef.current) {
+      syncElements(timeRef.current, playingRef.current);
+      applyGains(timeRef.current);
+      scheduleDraw();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project]);
 
@@ -756,7 +821,7 @@ export function Preview() {
       if (state.currentTime !== previous.currentTime) timeRef.current = state.currentTime;
       if (state.playing !== previous.playing) playingRef.current = state.playing;
 
-      if (!state.playing && state.project) {
+      if (!state.playing && state.project && !exactReadyRef.current) {
         syncElements(state.currentTime, false);
         applyGains(state.currentTime);
         scheduleDraw();
@@ -767,30 +832,168 @@ export function Preview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const startExactLoop = () => {
+    if (exactRafRef.current) cancelAnimationFrame(exactRafRef.current);
+    // The element may not be mounted on the same commit; try again next tick.
+    const play = () => {
+      const video = exactVideoRef.current;
+      if (!video) {
+        exactRafRef.current = requestAnimationFrame(play);
+        return;
+      }
+      // The element is a fresh mount; start it at the playhead.
+      try {
+        video.currentTime = Math.max(0, timeRef.current);
+      } catch {
+        // The seek is applied once the metadata arrives.
+      }
+      void video.play().catch((error: unknown) => {
+        setExactRenderError(
+          error instanceof Error && error.message.includes("interaction")
+            ? t("The accurate preview is ready — press Space to play it")
+            : error instanceof Error
+              ? error.message
+              : String(error),
+        );
+      });
+    };
+    const tick = () => {
+      exactRafRef.current = requestAnimationFrame(tick);
+      const video = exactVideoRef.current;
+      if (!video || !playingRef.current) return;
+      const time = video.currentTime;
+      if (Number.isFinite(time) && Math.abs(time - timeRef.current) > 0.0005) {
+        useEditor.getState().setCurrentTime(time);
+      }
+    };
+    play();
+    exactRafRef.current = requestAnimationFrame(tick);
+  };
+
+  const cancelExactLoop = () => {
+    if (exactRafRef.current) {
+      cancelAnimationFrame(exactRafRef.current);
+      exactRafRef.current = 0;
+    }
+    exactVideoRef.current?.pause();
+  };
+
+  const exactRendering = renderProgress !== null;
+  const retryAccurateRender = () => {
+    renderFailedKeyRef.current = null;
+    renderCancelledKeyRef.current = null;
+    setExactRenderError(null);
+    setRenderRetry((value) => value + 1);
+  };
+  const cancelAccurateRender = () => {
+    renderCancelledKeyRef.current = renderKeyRef.current;
+    renderKeyRef.current = null;
+    void cancelPreviewRender();
+    setRenderProgress(null);
+    setExactRenderError(null);
+  };
+
+  // Subscribe to the render progress of the accurate preview.
+  useEffect(() => {
+    if (!isTauri) return undefined;
+    let unsubscribe: (() => void) | undefined;
+    listen<PreviewRenderProgress>("preview-render-progress", (event) => {
+      const percent = Number(event.payload?.percent);
+      const time = Number(event.payload?.time);
+      if (Number.isFinite(percent)) {
+        setRenderProgress({ percent, time: Number.isFinite(time) ? time : 0 });
+      }
+    }).then((unsubscribeFn) => {
+      unsubscribe = unsubscribeFn;
+    });
+    return () => unsubscribe?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the accurate preview in step with the project: every edit invalidates
+  // the rendered file, so it is rendered again in the background.
+  useEffect(() => {
+    if (previewQuality !== "exact" || !isTauri || !hasClips || !contentKey || exactRendering) return undefined;
+    if (exactRenderedHash === contentKey) return undefined;
+    if (renderFailedKeyRef.current === contentKey || renderCancelledKeyRef.current === contentKey) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      renderFailedKeyRef.current = null;
+      renderCancelledKeyRef.current = null;
+      renderKeyRef.current = contentKey;
+      const request = buildExportRequest(project as Project, "", project!.width, project!.height);
+      setRenderProgress({ percent: 0, time: 0 });
+      setExactRenderError(null);
+      void renderPreviewPlayback(request)
+        .then((result) => {
+          if (renderKeyRef.current !== contentKey) return;
+          setExactMediaId(result.mediaId);
+          setExactRenderedHash(contentKey);
+          setRenderProgress(null);
+          recordMetric("preview accurate render", result.elapsedMs, "ms", {
+            reused: result.reused,
+          });
+        })
+        .catch((error: unknown) => {
+          if (renderKeyRef.current !== contentKey) return;
+          if (String(error).includes("cancelled")) {
+            renderCancelledKeyRef.current = contentKey;
+          } else {
+            renderFailedKeyRef.current = contentKey;
+          }
+          setExactRenderError(error instanceof Error ? error.message : String(error));
+          setRenderProgress(null);
+        });
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [previewQuality, isTauri, hasClips, contentKey, exactRendering, exactRenderedHash, project, renderRetry]);
+
+  // Paused: keep the accurate video on the playhead.
+  useEffect(() => {
+    const video = exactVideoRef.current;
+    if (!video || !exactReady || playing) return;
+    try {
+      video.currentTime = Math.max(0, currentTime);
+    } catch {
+      // Metadata is not loaded yet; the seek is applied by the browser later.
+    }
+  }, [exactReady, playing, currentTime, exactVideoUrl]);
+
   useEffect(() => {
     playingRef.current = playing;
     if (playing) {
+      cancelExactLoop();
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+      if (previewQuality === "exact" && exactReadyRef.current) {
+        startExactLoop();
+        return undefined;
+      }
       void ensureAudio().then(() => {
         if (!playingRef.current) return;
         clockRef.current.last = performance.now();
         syncElements(timeRef.current, true);
         startLoop();
       });
-    } else {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = 0;
+      return undefined;
+    }
+    cancelExactLoop();
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = 0;
+    if (!exactReadyRef.current) {
       syncElements(timeRef.current, false);
       applyGains(timeRef.current);
       scheduleDraw();
     }
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
+    return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing]);
+  }, [playing, previewQuality, exactReady]);
+
+  useEffect(() => () => cancelExactLoop(), []);
 
   useEffect(() => {
-    if (playing) return;
+    if (playing || exactReadyRef.current) return;
     let timer = 0;
     let cancelled = false;
     const renderPausedFrame = () => {
@@ -812,8 +1015,54 @@ export function Preview() {
   }, [playing]);
 
   useEffect(() => {
+    if (!matchExport || playing || !project || !isTauri) {
+      exactFrameRequestRef.current += 1;
+      setExactFrame(null);
+      setExactFrameBusy(false);
+      setExactFrameError(null);
+      return;
+    }
+    if (!project.tracks.some((track) => track.clips.length > 0)) {
+      exactFrameRequestRef.current += 1;
+      setExactFrame(null);
+      setExactFrameBusy(false);
+      setExactFrameError(null);
+      return;
+    }
+    // Scrubbing fires a new time on every pointer move. Waiting for the
+    // playhead to settle keeps one FFmpeg run per inspected frame.
+    const time = currentTime;
+    // Every run gets a token; a frame that arrives after the playhead moved
+    // again is dropped instead of replacing the newer one.
+    const token = exactFrameRequestRef.current + 1;
+    exactFrameRequestRef.current = token;
+    setExactFrameBusy(true);
+    const timer = window.setTimeout(() => {
+      const request = buildExportRequest(project, "", project.width, project.height);
+      void renderPreviewFrame(request, time)
+        .then((result) => {
+          if (token !== exactFrameRequestRef.current) return;
+          setExactFrame({ mediaId: result.mediaId, width: result.width, height: result.height });
+          setExactFrameError(null);
+          setExactFrameBusy(false);
+          recordMetric("preview export frame", result.elapsedMs, "ms", {
+            width: result.width,
+            height: result.height,
+          });
+        })
+        .catch((error: unknown) => {
+          if (token !== exactFrameRequestRef.current) return;
+          setExactFrame(null);
+          setExactFrameError(error instanceof Error ? error.message : String(error));
+          setExactFrameBusy(false);
+        });
+    }, 320);
+    return () => window.clearTimeout(timer);
+  }, [matchExport, playing, currentTime, project]);
+
+  useEffect(() => {
     timeRef.current = currentTime;
-    if (!playingRef.current) {
+    if (!playingRef.current && !exactReadyRef.current) {
       const seekStarted = performance.now();
       // A scrub can land far from the pooled window, so the pool follows the
       // playhead before the elements are positioned.
@@ -856,6 +1105,39 @@ export function Preview() {
     };
   }, []);
 
+  const exactStatus: "rendering" | "ready" | "error" | "idle" | null =
+    previewQuality !== "exact" || !isTauri || !hasClips
+      ? null
+      : exactRendering
+        ? "rendering"
+        : exactRenderError
+          ? "error"
+          : exactReady
+            ? "ready"
+            : "idle";
+  const renderPercent = renderProgress?.percent ?? null;
+
+  const setPreviewQualityAndPersist = (value: "fast" | "exact") => {
+    setPreviewQuality(value);
+    try {
+      localStorage.setItem("librecut.preview.quality", value);
+    } catch {
+      // Private mode; the toggle still works for the session.
+    }
+    if (value === "fast") {
+      // Release the FFmpeg the render may still be using.
+      void cancelPreviewRender();
+      renderKeyRef.current = null;
+      setRenderProgress(null);
+      setExactRenderError(null);
+    }
+  };
+
+  const handleRenderVideoEnded = () => {
+    useEditor.getState().setPlaying(false);
+    useEditor.getState().setCurrentTime(duration);
+  };
+
   const togglePlay = () => setPlaying(!playing);
   const step = (direction: number) => {
     setPlaying(false);
@@ -876,6 +1158,13 @@ export function Preview() {
         showGuides={showGuides}
         onToggleGuides={() => setShowGuides((value) => !value)}
         onFullscreen={fullscreen}
+        matchExport={matchExport}
+        matchExportBusy={exactFrameBusy}
+        matchExportDisabled={!isTauri}
+        previewQuality={previewQuality}
+        onToggleQuality={setPreviewQualityAndPersist}
+        previewQualityDisabled={!isTauri}
+        onToggleMatchExport={() => setMatchExport((value) => !value)}
       />
 
       <PreviewStage
@@ -890,6 +1179,20 @@ export function Preview() {
         selectedClip={selectedClip}
         draftMaskPoints={draftMaskPoints}
         maskOverlayPoints={maskOverlayPoints}
+        showGuides={showGuides}
+        matchExport={canShowExportFrame}
+        exactFrameUrl={!playing && exactFrame ? mediaUrl(exactFrame.mediaId) : null}
+        exactFrameBusy={exactFrameBusy}
+        exactFrameError={exactFrameError}
+        exactFrameSize={exactFrame ? { width: exactFrame.width, height: exactFrame.height } : null}
+        renderVideoUrl={exactVideoUrl}
+        renderVideoRef={exactVideoRef}
+        renderStatus={exactStatus}
+        renderPercent={renderPercent}
+        renderError={exactRenderError}
+        onCancelRender={cancelAccurateRender}
+        onRetryRender={retryAccurateRender}
+        onRenderVideoEnded={handleRenderVideoEnded}
         onStartMask={startMaskDrawing}
         onExtendMask={extendMaskDrawing}
         onFinishMask={finishMaskDrawing}

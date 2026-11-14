@@ -8,6 +8,9 @@ import type {
   MediaInfo,
   MediaProgress,
   MemorySnapshot,
+  PreviewFrameResult,
+  PreviewRenderProgress,
+  PreviewRenderResult,
   RegisteredMedia,
   RuntimeStatus,
   StoredProjectSummary,
@@ -88,6 +91,39 @@ export async function removeProxyCache(proxyId: string): Promise<void> {
 
 export async function exportProject(request: ExportRequest): Promise<ExportResult> {
   return invoke<ExportResult>("export_project", { request });
+}
+
+/**
+ * Renders one frame with the export filter graph.
+ *
+ * The result is a PNG in the media registry, so it is shown through
+ * `mediaUrl` like any other media. This is the export renderer: the frame has
+ * the same scaling, colour processing, font rasterisation, and transitions a
+ * full render produces.
+ */
+export async function renderPreviewFrame(
+  request: ExportRequest,
+  time: number,
+): Promise<PreviewFrameResult> {
+  return invoke<PreviewFrameResult>("render_preview_frame", { request, time });
+}
+
+/**
+ * Renders the timeline into a file the preview can play.
+ *
+ * The file is produced by the export filter graph, so it contains the exact
+ * frames and the exact audio an export produces. A cached file for an
+ * unchanged project is returned without rendering.
+ */
+export async function renderPreviewPlayback(
+  request: ExportRequest,
+): Promise<PreviewRenderResult> {
+  return invoke<PreviewRenderResult>("render_preview_playback", { request });
+}
+
+/** Stops the accurate preview render in progress. */
+export async function cancelPreviewRender(): Promise<void> {
+  return invoke("cancel_preview_render");
 }
 
 export async function cancelExport(): Promise<void> {
@@ -212,4 +248,4 @@ export async function detectHardwareEncoder(): Promise<boolean> {
   }
 }
 
-export type { ExportProgress, MediaProgress, MediaInfo };
+export type { ExportProgress, MediaProgress, MediaInfo, PreviewRenderProgress };

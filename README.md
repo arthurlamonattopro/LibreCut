@@ -30,7 +30,7 @@ Working today:
 - Multi-select, clip move, trim, split, duplicate, delete, snapping, zoom, and state-restoring undo/redo
 - Track creation, deletion, reordering, and overlap-free placement
 - Speed ramps with editable speed points, in the preview and the export
-- Live canvas preview with compositing, transforms, opacity, transitions, keyframes, text, and audio effects
+- Live canvas preview with compositing, transforms, opacity, transitions, keyframes, text, and audio effects, plus an export-accurate paused frame and an optional export-accurate whole-timeline playback mode via the same FFmpeg graph the export uses
 - Searchable effect presets, color adjustments, masks, blur, vignette, fades, motion blur, and imported `.cube` LUTs
 - Every transition FFmpeg's `xfade` filter supports: cross fades, wipes, slides, irises, slices, and effects, previewed on the canvas and rendered with `xfade` on export
 - Text styling, animation presets, safe-area guides, and customizable transitions and keyframes

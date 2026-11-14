@@ -426,6 +426,33 @@ export interface ExportResult {
   elapsedMs: number;
 }
 
+/** A single frame rendered by the export pipeline for the preview. */
+export interface PreviewFrameResult {
+  /** Media-registry id for the PNG, served over the regular media protocol. */
+  mediaId: string;
+  width: number;
+  height: number;
+  time: number;
+  elapsedMs: number;
+}
+
+/** Progress of an "export-accurate" preview render. */
+export interface PreviewRenderProgress {
+  percent: number;
+  time: number;
+}
+
+/** A finished "export-accurate" preview render. */
+export interface PreviewRenderResult {
+  /** Media-registry id for the rendered file. */
+  mediaId: string;
+  /** Stable content key of the rendered project. */
+  key: string;
+  /** True when the cached file was reused without rendering anything. */
+  reused: boolean;
+  elapsedMs: number;
+}
+
 export interface ExportProgress {
   percent: number;
   time: number;
